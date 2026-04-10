@@ -1,0 +1,12 @@
+{
+  "name": "emilkowalski",
+  "version": "1.0.0",
+  "description": "Build polished React UI components using Vaul (drawer), Sonner (toasts), and Motion animations.",
+  "author": {
+    "name": "Emil Kowalski",
+    "url": "https://emilkowalski.com"
+  },
+  "repository": "https://github.com/emilkowalski/skill",
+  "license": "MIT",
+  "keywords": ["react", "ui", "animations", "vaul", "sonner", "motion", "components", "drawer", "toast"]
+}
