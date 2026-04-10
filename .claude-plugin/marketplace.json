@@ -145,6 +145,17 @@
       },
       "source": "./plugins/security-guidance",
       "category": "security"
+    },
+    {
+      "name": "emilkowalski",
+      "description": "Build polished React UI components using Vaul (drawer), Sonner (toasts), and Motion animations. Covers accessible, native-feeling components with physics-based animations.",
+      "version": "1.0.0",
+      "author": {
+        "name": "Emil Kowalski",
+        "url": "https://emilkowalski.com"
+      },
+      "source": "./plugins/emilkowalski",
+      "category": "development"
     }
   ]
 }
