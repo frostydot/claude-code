@@ -1,11 +1,5 @@
 #!/usr/bin/env bun
 
-declare global {
-  var process: {
-    env: Record<string, string | undefined>;
-  };
-}
-
 interface GitHubIssue {
   number: number;
   title: string;

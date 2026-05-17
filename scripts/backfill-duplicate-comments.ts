@@ -1,11 +1,5 @@
 #!/usr/bin/env bun
 
-declare global {
-  var process: {
-    env: Record<string, string | undefined>;
-  };
-}
-
 interface GitHubIssue {
   number: number;
   title: string;
@@ -82,7 +76,9 @@ Usage:
 Environment Variables:
   GITHUB_TOKEN - GitHub personal access token with repo and actions permissions (required)
   DRY_RUN - Set to "false" to actually trigger workflows (default: true for safety)
-  MAX_ISSUE_NUMBER - Only process issues with numbers less than this value (default: 4050)`);
+  MAX_ISSUE_NUMBER - Only process issues with numbers less than this value (default: 4050)
+  MIN_ISSUE_NUMBER - Only process issues with numbers at or above this value (default: 1)
+  DAYS_BACK - Only process issues created at least this many days ago (default: 0 = no filter)`);
   }
   console.log("[DEBUG] GitHub token found");
 
@@ -91,10 +87,15 @@ Environment Variables:
   const dryRun = process.env.DRY_RUN !== "false";
   const maxIssueNumber = parseInt(process.env.MAX_ISSUE_NUMBER || "4050", 10);
   const minIssueNumber = parseInt(process.env.MIN_ISSUE_NUMBER || "1", 10);
-  
+  const daysBack = parseInt(process.env.DAYS_BACK || "0", 10);
+  const cutoffDate = daysBack > 0 ? new Date(Date.now() - daysBack * 86400000) : null;
+
   console.log(`[DEBUG] Repository: ${owner}/${repo}`);
   console.log(`[DEBUG] Dry run mode: ${dryRun}`);
   console.log(`[DEBUG] Looking at issues between #${minIssueNumber} and #${maxIssueNumber}`);
+  if (cutoffDate) {
+    console.log(`[DEBUG] Filtering to issues created on or before ${cutoffDate.toISOString()} (${daysBack} days ago)`);
+  }
 
   console.log(`[DEBUG] Fetching issues between #${minIssueNumber} and #${maxIssueNumber}...`);
   const allIssues: GitHubIssue[] = [];
@@ -109,10 +110,12 @@ Environment Variables:
     
     if (pageIssues.length === 0) break;
     
-    // Filter to only include issues within the specified range
-    const filteredIssues = pageIssues.filter(issue => 
-      issue.number >= minIssueNumber && issue.number < maxIssueNumber
-    );
+    // Filter to only include issues within the specified range and (optionally) older than the cutoff
+    const filteredIssues = pageIssues.filter(issue => {
+      if (issue.number < minIssueNumber || issue.number >= maxIssueNumber) return false;
+      if (cutoffDate && new Date(issue.created_at) > cutoffDate) return false;
+      return true;
+    });
     allIssues.push(...filteredIssues);
     
     // If the oldest issue in this page is still above our minimum, we need to continue
