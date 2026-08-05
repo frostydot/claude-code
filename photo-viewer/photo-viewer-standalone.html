@@ -1,0 +1,1458 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#000000">
+<title>Photos</title>
+<style>
+/* =========================================================================
+   Photos — a single consistent art style is shared by every tab & surface:
+   same font, same spacing scale, same radii, same icon set, same motion.
+   ========================================================================= */
+
+:root {
+  --bg-primary: #f5f5f7;
+  --bg-elevated: #ffffff;
+  --bg-tile: #e8e8ed;
+  --text-primary: #1d1d1f;
+  --text-secondary: #86868b;
+  --accent: #0071e3;
+  --danger: #ff3b30;
+  --favorite: #ff375f;
+  --border: rgba(0, 0, 0, 0.08);
+  --shadow-sm: 0 2px 10px rgba(0, 0, 0, 0.06);
+  --shadow-md: 0 8px 30px rgba(0, 0, 0, 0.12);
+  --blur-bg: rgba(255, 255, 255, 0.72);
+  --overlay-scrim: rgba(0, 0, 0, 0.55);
+
+  --radius-sm: 10px;
+  --radius-md: 16px;
+  --radius-lg: 22px;
+  --radius-pill: 980px;
+
+  --space-xs: 4px;
+  --space-sm: 8px;
+  --space-md: 16px;
+  --space-lg: 24px;
+  --space-xl: 48px;
+
+  --ease: cubic-bezier(0.25, 0.1, 0.25, 1);
+  --tabbar-h: 82px;
+  --topbar-h: 56px;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg-primary: #000000;
+    --bg-elevated: #1c1c1e;
+    --bg-tile: #2c2c2e;
+    --text-primary: #f5f5f7;
+    --text-secondary: #98989d;
+    --border: rgba(255, 255, 255, 0.1);
+    --shadow-sm: 0 2px 10px rgba(0, 0, 0, 0.3);
+    --shadow-md: 0 8px 30px rgba(0, 0, 0, 0.5);
+    --blur-bg: rgba(28, 28, 30, 0.72);
+    --overlay-scrim: rgba(0, 0, 0, 0.75);
+  }
+}
+
+* { box-sizing: border-box; }
+
+/* Author rules below set `display` on several of these elements (flex/grid),
+   which would otherwise out-rank the UA [hidden] stylesheet rule and defeat
+   toggling visibility via the `hidden` attribute. Force it to always win. */
+[hidden] { display: none !important; }
+
+html, body {
+  height: 100%;
+  overscroll-behavior-y: none;
+}
+
+body {
+  margin: 0;
+  background: var(--bg-primary);
+  color: var(--text-primary);
+  font-family: -apple-system, BlinkMacSystemFont, 'SF Pro Display', 'Segoe UI', Roboto, sans-serif;
+  -webkit-font-smoothing: antialiased;
+  overflow: hidden;
+}
+
+button {
+  font: inherit;
+  color: inherit;
+  background: none;
+  border: none;
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+}
+
+.icon {
+  width: 24px;
+  height: 24px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.8;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  display: block;
+}
+/* icons that read better filled */
+#icon-play, #icon-dots { stroke: none; fill: currentColor; }
+.icon use[href="#icon-play"], svg use[href="#icon-play"] {}
+
+#app {
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  max-width: 900px;
+  margin: 0 auto;
+  position: relative;
+}
+
+/* ---------------------------- Top bar ---------------------------------- */
+
+.topbar {
+  height: var(--topbar-h);
+  padding: 0 var(--space-md);
+  padding-top: env(safe-area-inset-top);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  background: var(--blur-bg);
+  backdrop-filter: blur(20px) saturate(1.6);
+  -webkit-backdrop-filter: blur(20px) saturate(1.6);
+  border-bottom: 1px solid var(--border);
+  flex-shrink: 0;
+  z-index: 20;
+  position: relative;
+}
+
+.topbar h1 {
+  font-size: 22px;
+  font-weight: 700;
+  letter-spacing: -0.02em;
+  margin: 0;
+}
+
+.topbar-actions { display: flex; gap: var(--space-xs); }
+
+.icon-btn {
+  width: 40px;
+  height: 40px;
+  min-width: 44px;
+  min-height: 44px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 50%;
+  transition: background 0.2s var(--ease), transform 0.15s var(--ease);
+  color: var(--accent);
+}
+.icon-btn:active { transform: scale(0.9); background: rgba(0, 113, 227, 0.12); }
+
+/* ---------------------------- Main content ------------------------------ */
+
+#content {
+  flex: 1;
+  overflow: hidden;
+  position: relative;
+}
+
+.view {
+  position: absolute;
+  inset: 0;
+  overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
+  padding: var(--space-md) var(--space-md) calc(var(--tabbar-h) + var(--space-lg));
+  opacity: 0;
+  pointer-events: none;
+  transform: translateY(6px);
+  transition: opacity 0.22s var(--ease), transform 0.22s var(--ease);
+}
+.view.active {
+  opacity: 1;
+  pointer-events: auto;
+  transform: translateY(0);
+}
+
+/* --------------------------- Photo/video grid --------------------------- */
+
+.tile-grid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 3px;
+}
+
+.tile {
+  position: relative;
+  aspect-ratio: 1 / 1;
+  border-radius: var(--radius-sm);
+  overflow: hidden;
+  background: var(--bg-tile);
+  animation: tileIn 0.32s var(--ease) both;
+}
+
+@keyframes tileIn {
+  from { opacity: 0; transform: scale(0.94); }
+  to { opacity: 1; transform: scale(1); }
+}
+
+.tile img, .tile video {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+  pointer-events: none;
+}
+
+.tile .video-badge {
+  position: absolute;
+  left: var(--space-xs);
+  bottom: var(--space-xs);
+  display: flex;
+  align-items: center;
+  gap: 3px;
+  background: rgba(0, 0, 0, 0.5);
+  color: #fff;
+  padding: 3px 7px 3px 5px;
+  border-radius: var(--radius-pill);
+  font-size: 11px;
+  font-weight: 600;
+  backdrop-filter: blur(6px);
+}
+.tile .video-badge .icon { width: 12px; height: 12px; }
+
+.tile .fav-btn {
+  position: absolute;
+  top: 4px;
+  left: 4px;
+  width: 28px;
+  height: 28px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 50%;
+  background: rgba(0, 0, 0, 0.38);
+  backdrop-filter: blur(6px);
+  color: #fff;
+  opacity: 0;
+  transition: opacity 0.2s var(--ease), transform 0.15s var(--ease);
+}
+.tile .fav-btn .icon { width: 16px; height: 16px; }
+.tile:hover .fav-btn, .tile.is-favorite .fav-btn { opacity: 1; }
+.tile.is-favorite .fav-btn { color: var(--favorite); }
+.tile.is-favorite .fav-btn .icon { fill: var(--favorite); stroke: var(--favorite); }
+.tile .fav-btn:active { transform: scale(0.85); }
+
+.tile .menu-btn {
+  position: absolute;
+  top: 4px;
+  right: 4px;
+  width: 28px;
+  height: 28px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 50%;
+  background: rgba(0, 0, 0, 0.38);
+  backdrop-filter: blur(6px);
+  color: #fff;
+  opacity: 0;
+  transition: opacity 0.2s var(--ease), transform 0.15s var(--ease);
+}
+.tile .menu-btn .icon { width: 15px; height: 15px; }
+.tile:hover .menu-btn, .tile.menu-open .menu-btn { opacity: 1; }
+.tile .menu-btn:active { transform: scale(0.85); }
+
+@media (hover: none) {
+  .tile .fav-btn, .tile .menu-btn { opacity: 1; }
+}
+
+/* ------------------------------ Empty state ------------------------------ */
+
+.empty-state {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  text-align: center;
+  padding: var(--space-xl) var(--space-lg);
+  min-height: 50vh;
+  color: var(--text-secondary);
+  animation: fadeUp 0.35s var(--ease) both;
+}
+@keyframes fadeUp {
+  from { opacity: 0; transform: translateY(14px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+.empty-state .icon {
+  width: 52px;
+  height: 52px;
+  stroke-width: 1.3;
+  color: var(--text-secondary);
+  opacity: 0.5;
+  margin-bottom: var(--space-md);
+}
+.empty-state h3 {
+  margin: 0 0 var(--space-xs);
+  font-size: 19px;
+  font-weight: 600;
+  color: var(--text-primary);
+}
+.empty-state p {
+  margin: 0 0 var(--space-md);
+  font-size: 15px;
+  max-width: 280px;
+  line-height: 1.5;
+}
+.empty-state .btn-primary { margin-top: var(--space-sm); }
+
+/* -------------------------------- Buttons -------------------------------- */
+
+.btn-primary {
+  background: var(--accent);
+  color: #fff;
+  padding: 12px 26px;
+  border-radius: var(--radius-pill);
+  font-weight: 600;
+  font-size: 15px;
+  transition: transform 0.15s var(--ease), filter 0.15s var(--ease);
+}
+.btn-primary:active { transform: scale(0.96); filter: brightness(1.08); }
+
+/* -------------------------------- Tab bar --------------------------------- */
+
+.tabbar {
+  position: absolute;
+  left: 0; right: 0; bottom: 0;
+  display: flex;
+  padding-bottom: env(safe-area-inset-bottom);
+  background: var(--blur-bg);
+  backdrop-filter: blur(20px) saturate(1.6);
+  -webkit-backdrop-filter: blur(20px) saturate(1.6);
+  border-top: 1px solid var(--border);
+  z-index: 20;
+}
+
+.tab-btn {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 3px;
+  padding: 9px 2px 8px;
+  min-height: 58px;
+  color: var(--text-secondary);
+  transition: color 0.18s var(--ease);
+}
+.tab-btn .icon { width: 25px; height: 25px; transition: transform 0.18s var(--ease); }
+.tab-btn span { font-size: 10.5px; font-weight: 600; letter-spacing: -0.01em; }
+.tab-btn.active { color: var(--accent); }
+.tab-btn.active .icon { transform: translateY(-1px) scale(1.05); }
+.tab-btn:active .icon { transform: scale(0.88); }
+.tab-btn[data-tab="favorites"].active { color: var(--favorite); }
+
+/* -------------------------------- Folders --------------------------------- */
+
+.folder-grid {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: var(--space-md);
+}
+
+.folder-card {
+  background: var(--bg-elevated);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-sm);
+  padding: var(--space-md) var(--space-sm) var(--space-md);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  transition: transform 0.18s var(--ease), box-shadow 0.18s var(--ease);
+  animation: tileIn 0.32s var(--ease) both;
+}
+.folder-card:active { transform: scale(0.97); box-shadow: var(--shadow-md); }
+
+.folder-fan {
+  position: relative;
+  width: 100%;
+  height: 108px;
+  margin-bottom: var(--space-md);
+}
+
+.folder-fan .fan-card {
+  position: absolute;
+  top: 6px;
+  left: 50%;
+  width: 62px;
+  height: 82px;
+  border-radius: 8px;
+  overflow: hidden;
+  background: var(--bg-tile);
+  border: 3px solid var(--bg-elevated);
+  box-shadow: 0 3px 10px rgba(0, 0, 0, 0.18);
+  transform-origin: bottom center;
+  /* deck spread — cards fanned out like a hand of cards, position set via JS */
+  transform: translateX(-50%) translateX(var(--dx, 0px)) rotate(var(--rot, 0deg));
+}
+.folder-fan .fan-card img,
+.folder-fan .fan-card video {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+}
+
+.folder-icon-empty {
+  width: 100%;
+  height: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--text-secondary);
+}
+.folder-icon-empty .icon { width: 44px; height: 44px; opacity: 0.4; }
+
+.folder-name {
+  font-size: 15px;
+  font-weight: 600;
+  text-align: center;
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.folder-count {
+  font-size: 12.5px;
+  color: var(--text-secondary);
+  margin-top: 2px;
+}
+
+/* --------------------------- Folder detail view ---------------------------- */
+
+.back-btn {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  color: var(--accent);
+  font-size: 17px;
+  font-weight: 400;
+  padding: var(--space-xs) 0;
+  margin-bottom: var(--space-xs);
+}
+.back-btn .icon { width: 22px; height: 22px; }
+.back-btn:active { opacity: 0.6; }
+
+.folder-detail-title {
+  font-size: 26px;
+  font-weight: 700;
+  letter-spacing: -0.02em;
+  margin: 0 0 var(--space-md);
+}
+
+/* -------------------------------- Lightbox --------------------------------- */
+
+.lightbox {
+  position: fixed;
+  inset: 0;
+  background: #000;
+  z-index: 100;
+  display: flex;
+  flex-direction: column;
+  animation: fadeIn 0.22s var(--ease) both;
+}
+@keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }
+
+.lightbox-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: env(safe-area-inset-top) var(--space-sm) var(--space-sm);
+  flex-shrink: 0;
+}
+.icon-btn.light { color: #fff; }
+.icon-btn.light.is-favorite { color: var(--favorite); }
+.icon-btn.light.is-favorite .icon { fill: var(--favorite); stroke: var(--favorite); }
+.lightbox-counter { color: rgba(255,255,255,0.7); font-size: 13px; font-weight: 600; }
+
+.lightbox-stage {
+  flex: 1;
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  overflow: hidden;
+  touch-action: pan-y;
+}
+.lightbox-media {
+  width: 100%;
+  height: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  animation: mediaIn 0.24s var(--ease) both;
+}
+@keyframes mediaIn { from { opacity: 0; transform: scale(0.97); } to { opacity: 1; transform: scale(1); } }
+.lightbox-media img, .lightbox-media video {
+  max-width: 100%;
+  max-height: 100%;
+  object-fit: contain;
+  border-radius: 4px;
+}
+
+.lightbox-nav {
+  position: absolute;
+  top: 50%;
+  transform: translateY(-50%);
+  width: 44px;
+  height: 44px;
+  border-radius: 50%;
+  background: rgba(255, 255, 255, 0.12);
+  color: #fff;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  backdrop-filter: blur(8px);
+  transition: opacity 0.2s var(--ease), transform 0.15s var(--ease);
+}
+.lightbox-nav:active { transform: translateY(-50%) scale(0.88); }
+.lightbox-nav.prev { left: var(--space-sm); }
+.lightbox-nav.next { right: var(--space-sm); }
+.lightbox-nav:disabled { opacity: 0; pointer-events: none; }
+@media (max-width: 640px) {
+  .lightbox-nav { display: none; }
+}
+
+.lightbox-footer {
+  padding: var(--space-sm) var(--space-md) calc(var(--space-md) + env(safe-area-inset-bottom));
+  text-align: center;
+  flex-shrink: 0;
+}
+.lightbox-name { color: #fff; font-size: 14px; font-weight: 600; }
+.lightbox-meta { color: rgba(255,255,255,0.55); font-size: 12.5px; margin-top: 2px; }
+
+/* ------------------------------ Context menu -------------------------------- */
+
+.context-menu-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 199;
+  background: transparent;
+}
+
+.context-menu {
+  position: fixed;
+  z-index: 200;
+  background: var(--blur-bg);
+  backdrop-filter: blur(24px) saturate(1.8);
+  -webkit-backdrop-filter: blur(24px) saturate(1.8);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  box-shadow: var(--shadow-md);
+  overflow: hidden;
+  min-width: 200px;
+  animation: popIn 0.16s var(--ease) both;
+}
+@keyframes popIn { from { opacity: 0; transform: scale(0.92) translateY(-4px); } to { opacity: 1; transform: scale(1) translateY(0); } }
+
+.context-menu button {
+  display: flex;
+  align-items: center;
+  gap: var(--space-sm);
+  width: 100%;
+  padding: 12px var(--space-md);
+  font-size: 15px;
+  font-weight: 500;
+  text-align: left;
+  border-bottom: 1px solid var(--border);
+}
+.context-menu button:last-child { border-bottom: none; }
+.context-menu button:active { background: rgba(127,127,127,0.15); }
+.context-menu button .icon { width: 18px; height: 18px; color: var(--text-secondary); }
+.context-menu button.danger { color: var(--danger); }
+.context-menu button.danger .icon { color: var(--danger); }
+.context-menu button.is-favorite .icon { color: var(--favorite); fill: var(--favorite); stroke: var(--favorite); }
+
+/* -------------------------------- Info sheet --------------------------------- */
+
+.info-sheet-backdrop {
+  position: fixed;
+  inset: 0;
+  background: var(--overlay-scrim);
+  z-index: 209;
+  animation: fadeIn 0.2s var(--ease) both;
+}
+.info-sheet {
+  position: fixed;
+  left: 0; right: 0; bottom: 0;
+  z-index: 210;
+  display: flex;
+  justify-content: center;
+}
+.info-sheet-inner {
+  width: 100%;
+  max-width: 500px;
+  background: var(--bg-elevated);
+  border-radius: 20px 20px 0 0;
+  padding: var(--space-sm) var(--space-lg) calc(var(--space-lg) + env(safe-area-inset-bottom));
+  box-shadow: var(--shadow-md);
+  animation: sheetUp 0.28s var(--ease) both;
+}
+@keyframes sheetUp { from { transform: translateY(100%); } to { transform: translateY(0); } }
+.info-sheet-handle {
+  width: 36px;
+  height: 5px;
+  border-radius: var(--radius-pill);
+  background: var(--border);
+  margin: var(--space-sm) auto var(--space-md);
+}
+.info-sheet h3 {
+  margin: 0 0 var(--space-md);
+  font-size: 18px;
+  font-weight: 700;
+  word-break: break-word;
+}
+.info-sheet dl {
+  margin: 0 0 var(--space-lg);
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: var(--space-sm) var(--space-md);
+}
+.info-sheet dt { color: var(--text-secondary); font-size: 14px; }
+.info-sheet dd { margin: 0; font-size: 14px; font-weight: 500; text-align: right; }
+.info-sheet .btn-primary { width: 100%; text-align: center; }
+
+/* -------------------------------- Scrollbars ---------------------------------- */
+
+.view::-webkit-scrollbar { width: 0; }
+
+/* -------------------------------- Responsive ------------------------------------ */
+
+@media (min-width: 720px) {
+  .tile-grid { gap: 4px; }
+  .folder-grid { grid-template-columns: repeat(3, 1fr); }
+}
+
+</style>
+</head>
+<body>
+
+<!-- ============ Icon sprite (single art style used everywhere) ============ -->
+<svg style="display:none" aria-hidden="true">
+  <symbol id="icon-all" viewBox="0 0 24 24"><rect x="3" y="3" width="7" height="7" rx="1.6"/><rect x="14" y="3" width="7" height="7" rx="1.6"/><rect x="3" y="14" width="7" height="7" rx="1.6"/><rect x="14" y="14" width="7" height="7" rx="1.6"/></symbol>
+  <symbol id="icon-photos" viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="16" rx="2"/><circle cx="8.5" cy="9.5" r="1.8"/><path d="M21 16l-5.5-5.5a1.5 1.5 0 0 0-2.1 0L3 20"/></symbol>
+  <symbol id="icon-videos" viewBox="0 0 24 24"><rect x="3" y="5" width="14" height="14" rx="2"/><path d="M17 9.5l4-2.3v9.6l-4-2.3"/></symbol>
+  <symbol id="icon-favorites" viewBox="0 0 24 24"><path d="M12 20.5s-7.5-4.6-10-9.4C0.3 7.8 2 4 5.8 4c2.2 0 3.7 1.3 4.5 2.4C11.1 5.3 12.6 4 14.8 4 18.6 4 20.3 7.8 18.7 11.1c-2.5 4.8-6.7 9.4-6.7 9.4z"/></symbol>
+  <symbol id="icon-folders" viewBox="0 0 24 24"><path d="M3 6.5a1.5 1.5 0 0 1 1.5-1.5H9l2 2.2h8.5A1.5 1.5 0 0 1 21 8.7v9.1A1.7 1.7 0 0 1 19.3 19.5H4.7A1.7 1.7 0 0 1 3 17.8z"/></symbol>
+  <symbol id="icon-plus" viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></symbol>
+  <symbol id="icon-folder-plus" viewBox="0 0 24 24"><path d="M3 6.5a1.5 1.5 0 0 1 1.5-1.5H9l2 2.2h8.5A1.5 1.5 0 0 1 21 8.7v9.1A1.7 1.7 0 0 1 19.3 19.5H4.7A1.7 1.7 0 0 1 3 17.8z"/><path d="M12 10.5v5M9.5 13h5"/></symbol>
+  <symbol id="icon-x" viewBox="0 0 24 24"><path d="M6 6l12 12M18 6L6 18"/></symbol>
+  <symbol id="icon-chevron-left" viewBox="0 0 24 24"><path d="M15 5l-7 7 7 7"/></symbol>
+  <symbol id="icon-chevron-right" viewBox="0 0 24 24"><path d="M9 5l7 7-7 7"/></symbol>
+  <symbol id="icon-play" viewBox="0 0 24 24"><path d="M8 5.5v13l11-6.5z"/></symbol>
+  <symbol id="icon-dots" viewBox="0 0 24 24"><circle cx="5" cy="12" r="1.6"/><circle cx="12" cy="12" r="1.6"/><circle cx="19" cy="12" r="1.6"/></symbol>
+  <symbol id="icon-trash" viewBox="0 0 24 24"><path d="M4 7h16M9 7V5a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2M6 7l1 13a1.5 1.5 0 0 0 1.5 1.4h7A1.5 1.5 0 0 0 17 20l1-13"/></symbol>
+  <symbol id="icon-info" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M12 11v5.5"/><circle cx="12" cy="7.7" r="1"/></symbol>
+</svg>
+
+<div id="app">
+
+  <header class="topbar">
+    <h1 id="topbarTitle">Photos</h1>
+    <div class="topbar-actions">
+      <button class="icon-btn" id="addFilesBtn" aria-label="Add photos or videos">
+        <svg class="icon"><use href="#icon-plus"/></svg>
+      </button>
+      <button class="icon-btn" id="addFolderBtn" aria-label="Add folder">
+        <svg class="icon"><use href="#icon-folder-plus"/></svg>
+      </button>
+    </div>
+  </header>
+
+  <input type="file" id="fileInput" accept="image/*,video/*" multiple hidden>
+  <input type="file" id="folderInput" webkitdirectory directory multiple hidden>
+
+  <main id="content">
+    <section class="view grid-view active" data-view="all" id="view-all">
+      <div class="tile-grid"></div>
+      <div class="empty-state" hidden></div>
+    </section>
+
+    <section class="view grid-view" data-view="photos" id="view-photos">
+      <div class="tile-grid"></div>
+      <div class="empty-state" hidden></div>
+    </section>
+
+    <section class="view grid-view" data-view="videos" id="view-videos">
+      <div class="tile-grid"></div>
+      <div class="empty-state" hidden></div>
+    </section>
+
+    <section class="view grid-view" data-view="favorites" id="view-favorites">
+      <div class="tile-grid"></div>
+      <div class="empty-state" hidden></div>
+    </section>
+
+    <section class="view folders-view" data-view="folders" id="view-folders">
+      <div class="folder-grid"></div>
+      <div class="empty-state" hidden></div>
+    </section>
+
+    <section class="view grid-view" data-view="folder-detail" id="view-folder-detail">
+      <button class="back-btn" id="folderBackBtn">
+        <svg class="icon"><use href="#icon-chevron-left"/></svg>
+        <span>Folders</span>
+      </button>
+      <h2 class="folder-detail-title" id="folderDetailTitle"></h2>
+      <div class="tile-grid"></div>
+      <div class="empty-state" hidden></div>
+    </section>
+  </main>
+
+  <nav class="tabbar">
+    <button class="tab-btn active" data-tab="all">
+      <svg class="icon"><use href="#icon-all"/></svg>
+      <span>All</span>
+    </button>
+    <button class="tab-btn" data-tab="photos">
+      <svg class="icon"><use href="#icon-photos"/></svg>
+      <span>Photos</span>
+    </button>
+    <button class="tab-btn" data-tab="videos">
+      <svg class="icon"><use href="#icon-videos"/></svg>
+      <span>Videos</span>
+    </button>
+    <button class="tab-btn" data-tab="favorites">
+      <svg class="icon"><use href="#icon-favorites"/></svg>
+      <span>Favourites</span>
+    </button>
+    <button class="tab-btn" data-tab="folders">
+      <svg class="icon"><use href="#icon-folders"/></svg>
+      <span>Folders</span>
+    </button>
+  </nav>
+
+  <!-- Lightbox -->
+  <div class="lightbox" id="lightbox" hidden>
+    <div class="lightbox-header">
+      <button class="icon-btn light" id="lightboxClose" aria-label="Close">
+        <svg class="icon"><use href="#icon-x"/></svg>
+      </button>
+      <span class="lightbox-counter" id="lightboxCounter"></span>
+      <button class="icon-btn light" id="lightboxFav" aria-label="Toggle favourite">
+        <svg class="icon"><use href="#icon-favorites"/></svg>
+      </button>
+    </div>
+    <div class="lightbox-stage" id="lightboxStage">
+      <button class="lightbox-nav prev" id="lightboxPrev" aria-label="Previous">
+        <svg class="icon"><use href="#icon-chevron-left"/></svg>
+      </button>
+      <div class="lightbox-media" id="lightboxMedia"></div>
+      <button class="lightbox-nav next" id="lightboxNext" aria-label="Next">
+        <svg class="icon"><use href="#icon-chevron-right"/></svg>
+      </button>
+    </div>
+    <div class="lightbox-footer">
+      <div class="lightbox-name" id="lightboxName"></div>
+      <div class="lightbox-meta" id="lightboxMeta"></div>
+    </div>
+  </div>
+
+  <!-- Context menu -->
+  <div class="context-menu" id="contextMenu" hidden>
+    <button data-action="favorite"><svg class="icon"><use href="#icon-favorites"/></svg><span>Add to Favourites</span></button>
+    <button data-action="info"><svg class="icon"><use href="#icon-info"/></svg><span>Info</span></button>
+    <button data-action="remove" class="danger"><svg class="icon"><use href="#icon-trash"/></svg><span>Remove</span></button>
+  </div>
+  <div class="context-menu-backdrop" id="contextMenuBackdrop" hidden></div>
+
+  <!-- Info panel -->
+  <div class="info-sheet" id="infoSheet" hidden>
+    <div class="info-sheet-inner">
+      <div class="info-sheet-handle"></div>
+      <h3 id="infoName"></h3>
+      <dl id="infoList"></dl>
+      <button class="btn-primary" id="infoClose">Done</button>
+    </div>
+  </div>
+  <div class="info-sheet-backdrop" id="infoSheetBackdrop" hidden></div>
+
+</div>
+
+<script>
+(() => {
+  'use strict';
+
+  /* ==========================================================================
+     State
+     - mediaItems lives only in memory for this tab's page-session — nothing is
+       written to disk. Re-opening the app means re-adding your media, which is
+       exactly why folders "disappear" until their media is added back.
+     - favorites persist in sessionStorage (per browser-tab session only; wiped
+       when the tab/browser session ends), keyed by a stable id derived from
+       folder path + name + size + last-modified, so favourites naturally
+       re-attach if you re-add the same files later in the same session.
+     ========================================================================== */
+
+  const mediaItems = [];
+  const mediaMap = new Map();
+  const favorites = new Set(loadFavorites());
+
+  let currentTab = 'all';
+  let currentFolder = null;
+
+  let lightboxList = [];
+  let lightboxIndex = 0;
+
+  let contextMenuTargetId = null;
+
+  const IMAGE_EXT = /\.(jpe?g|png|gif|webp|heic|heif|bmp|tiff?|avif)$/i;
+  const VIDEO_EXT = /\.(mp4|mov|m4v|webm|mkv|avi|3gp)$/i;
+
+  const TAB_TITLES = {
+    all: 'All',
+    photos: 'Photos',
+    videos: 'Videos',
+    favorites: 'Favourites',
+    folders: 'Folders',
+  };
+
+  /* ------------------------------- DOM refs -------------------------------- */
+
+  const $ = (sel, root = document) => root.querySelector(sel);
+  const $$ = (sel, root = document) => Array.from(root.querySelectorAll(sel));
+
+  const topbarTitle = $('#topbarTitle');
+  const fileInput = $('#fileInput');
+  const folderInput = $('#folderInput');
+  const addFilesBtn = $('#addFilesBtn');
+  const addFolderBtn = $('#addFolderBtn');
+
+  const tabBtns = $$('.tab-btn');
+  const folderBackBtn = $('#folderBackBtn');
+  const folderDetailTitle = $('#folderDetailTitle');
+
+  const lightboxEl = $('#lightbox');
+  const lightboxStage = $('#lightboxStage');
+  const lightboxMedia = $('#lightboxMedia');
+  const lightboxCounter = $('#lightboxCounter');
+  const lightboxName = $('#lightboxName');
+  const lightboxMeta = $('#lightboxMeta');
+  const lightboxClose = $('#lightboxClose');
+  const lightboxPrev = $('#lightboxPrev');
+  const lightboxNext = $('#lightboxNext');
+  const lightboxFav = $('#lightboxFav');
+
+  const contextMenu = $('#contextMenu');
+  const contextMenuBackdrop = $('#contextMenuBackdrop');
+
+  const infoSheet = $('#infoSheet');
+  const infoSheetBackdrop = $('#infoSheetBackdrop');
+  const infoName = $('#infoName');
+  const infoList = $('#infoList');
+  const infoClose = $('#infoClose');
+
+  /* ------------------------------- Utilities -------------------------------- */
+
+  function loadFavorites() {
+    try {
+      return JSON.parse(sessionStorage.getItem('pv_favorites') || '[]');
+    } catch {
+      return [];
+    }
+  }
+
+  function saveFavorites() {
+    sessionStorage.setItem('pv_favorites', JSON.stringify(Array.from(favorites)));
+  }
+
+  function detectType(file) {
+    if (file.type.startsWith('image/')) return 'photo';
+    if (file.type.startsWith('video/')) return 'video';
+    if (IMAGE_EXT.test(file.name)) return 'photo';
+    if (VIDEO_EXT.test(file.name)) return 'video';
+    return null;
+  }
+
+  function folderPathOf(file) {
+    const rel = file.webkitRelativePath || '';
+    if (!rel) return '';
+    const parts = rel.split('/');
+    parts.pop();   // filename
+    parts.shift(); // the picked root folder itself isn't a meaningful sub-folder
+    return parts.join('/');
+  }
+
+  function leafName(path) {
+    const parts = path.split('/');
+    return parts[parts.length - 1];
+  }
+
+  function formatDuration(seconds) {
+    if (!isFinite(seconds)) return '--:--';
+    const m = Math.floor(seconds / 60);
+    const s = Math.floor(seconds % 60);
+    return `${m}:${String(s).padStart(2, '0')}`;
+  }
+
+  function formatBytes(bytes) {
+    if (bytes < 1024) return `${bytes} B`;
+    const units = ['KB', 'MB', 'GB'];
+    let val = bytes;
+    let i = -1;
+    do { val /= 1024; i++; } while (val >= 1024 && i < units.length - 1);
+    return `${val.toFixed(1)} ${units[i]}`;
+  }
+
+  function formatDate(ts) {
+    if (!ts) return 'Unknown date';
+    return new Date(ts).toLocaleString(undefined, {
+      year: 'numeric', month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit',
+    });
+  }
+
+  /* ------------------------------- Adding media ------------------------------- */
+
+  addFilesBtn.addEventListener('click', () => fileInput.click());
+  addFolderBtn.addEventListener('click', () => folderInput.click());
+
+  fileInput.addEventListener('change', (e) => {
+    processFiles(e.target.files, false);
+    fileInput.value = '';
+  });
+  folderInput.addEventListener('change', (e) => {
+    processFiles(e.target.files, true);
+    folderInput.value = '';
+  });
+
+  function processFiles(fileList, fromFolder) {
+    let added = 0;
+    for (const file of Array.from(fileList)) {
+      const type = detectType(file);
+      if (!type) continue;
+      const folderPath = fromFolder ? folderPathOf(file) : '';
+      const id = `${folderPath}|${file.name}|${file.size}|${file.lastModified}`;
+      if (mediaMap.has(id)) continue;
+      const url = URL.createObjectURL(file);
+      const item = { id, url, name: file.name, size: file.size, folderPath, type, lastModified: file.lastModified };
+      mediaItems.push(item);
+      mediaMap.set(id, item);
+      added++;
+    }
+    if (added) renderActive();
+  }
+
+  function removeItem(id) {
+    const idx = mediaItems.findIndex((i) => i.id === id);
+    if (idx === -1) return;
+    const [item] = mediaItems.splice(idx, 1);
+    mediaMap.delete(id);
+    favorites.delete(id);
+    saveFavorites();
+    URL.revokeObjectURL(item.url);
+    renderActive();
+  }
+
+  /* --------------------------------- Tabs ----------------------------------- */
+
+  tabBtns.forEach((btn) => {
+    btn.addEventListener('click', () => setActiveTab(btn.dataset.tab));
+  });
+
+  function setActiveTab(tab) {
+    currentTab = tab;
+    currentFolder = null;
+    tabBtns.forEach((b) => b.classList.toggle('active', b.dataset.tab === tab));
+    $$('.view').forEach((v) => v.classList.remove('active'));
+    $(`#view-${tab}`).classList.add('active');
+    topbarTitle.textContent = TAB_TITLES[tab];
+    renderActive();
+  }
+
+  folderBackBtn.addEventListener('click', () => setActiveTab('folders'));
+
+  function openFolder(path) {
+    currentFolder = path;
+    $$('.view').forEach((v) => v.classList.remove('active'));
+    $('#view-folder-detail').classList.add('active');
+    folderDetailTitle.textContent = leafName(path);
+    topbarTitle.textContent = leafName(path);
+    renderFolderDetail();
+  }
+
+  function renderActive() {
+    if (currentFolder !== null) {
+      renderFolderDetail();
+      return;
+    }
+    switch (currentTab) {
+      case 'all':
+        renderGrid('all', mediaItems);
+        break;
+      case 'photos':
+        renderGrid('photos', mediaItems.filter((i) => i.type === 'photo'));
+        break;
+      case 'videos':
+        renderGrid('videos', mediaItems.filter((i) => i.type === 'video'));
+        break;
+      case 'favorites':
+        renderGrid('favorites', mediaItems.filter((i) => favorites.has(i.id)));
+        break;
+      case 'folders':
+        renderFolders();
+        break;
+    }
+  }
+
+  /* ------------------------------- Grid render -------------------------------- */
+
+  function renderGrid(viewKey, items) {
+    const section = $(`#view-${viewKey}`);
+    const gridEl = $('.tile-grid', section);
+    const emptyEl = $('.empty-state', section);
+
+    gridEl.innerHTML = '';
+
+    if (!items.length) {
+      gridEl.hidden = true;
+      emptyEl.hidden = false;
+      emptyEl.innerHTML = emptyStateHTML(viewKey);
+      bindEmptyStateCTA(emptyEl);
+      return;
+    }
+
+    gridEl.hidden = false;
+    emptyEl.hidden = true;
+    const frag = document.createDocumentFragment();
+    items.forEach((item) => frag.appendChild(buildTile(item, items)));
+    gridEl.appendChild(frag);
+  }
+
+  function renderFolderDetail() {
+    const items = currentFolder === null ? [] : mediaItems.filter((i) => i.folderPath === currentFolder);
+    const section = $('#view-folder-detail');
+    const gridEl = $('.tile-grid', section);
+    const emptyEl = $('.empty-state', section);
+    gridEl.innerHTML = '';
+
+    if (!items.length) {
+      gridEl.hidden = true;
+      emptyEl.hidden = false;
+      emptyEl.innerHTML = `
+        <svg class="icon"><use href="#icon-folders"/></svg>
+        <h3>This folder is empty</h3>
+        <p>Once media is added back to this folder it will show up here again.</p>`;
+      return;
+    }
+
+    gridEl.hidden = false;
+    emptyEl.hidden = true;
+    const frag = document.createDocumentFragment();
+    items.forEach((item) => frag.appendChild(buildTile(item, items)));
+    gridEl.appendChild(frag);
+  }
+
+  function buildTile(item, contextList) {
+    const tile = document.createElement('div');
+    tile.className = 'tile' + (favorites.has(item.id) ? ' is-favorite' : '');
+    tile.dataset.id = item.id;
+
+    let mediaEl;
+    if (item.type === 'photo') {
+      mediaEl = document.createElement('img');
+      mediaEl.src = item.url;
+      mediaEl.loading = 'lazy';
+      mediaEl.alt = item.name;
+    } else {
+      mediaEl = document.createElement('video');
+      mediaEl.src = item.url;
+      mediaEl.muted = true;
+      mediaEl.preload = 'metadata';
+      mediaEl.playsInline = true;
+    }
+    tile.appendChild(mediaEl);
+
+    if (item.type === 'video') {
+      const badge = document.createElement('div');
+      badge.className = 'video-badge';
+      badge.innerHTML = '<svg class="icon"><use href="#icon-play"/></svg><span class="dur">--:--</span>';
+      tile.appendChild(badge);
+      mediaEl.addEventListener('loadedmetadata', () => {
+        badge.querySelector('.dur').textContent = formatDuration(mediaEl.duration);
+      }, { once: true });
+    }
+
+    const favBtn = document.createElement('button');
+    favBtn.className = 'fav-btn';
+    favBtn.setAttribute('aria-label', 'Toggle favourite');
+    favBtn.innerHTML = '<svg class="icon"><use href="#icon-favorites"/></svg>';
+    favBtn.addEventListener('click', (e) => {
+      e.stopPropagation();
+      toggleFavorite(item.id);
+    });
+    tile.appendChild(favBtn);
+
+    const menuBtn = document.createElement('button');
+    menuBtn.className = 'menu-btn';
+    menuBtn.setAttribute('aria-label', 'More options');
+    menuBtn.innerHTML = '<svg class="icon"><use href="#icon-dots"/></svg>';
+    menuBtn.addEventListener('click', (e) => {
+      e.stopPropagation();
+      openContextMenu(item.id, menuBtn);
+    });
+    tile.appendChild(menuBtn);
+
+    tile.addEventListener('click', () => openLightbox(contextList, contextList.indexOf(item)));
+
+    return tile;
+  }
+
+  function toggleFavorite(id) {
+    if (favorites.has(id)) favorites.delete(id); else favorites.add(id);
+    saveFavorites();
+    renderActive();
+    if (!lightboxEl.hidden) updateLightboxFavState();
+  }
+
+  /* -------------------------------- Empty states -------------------------------- */
+
+  function emptyStateHTML(viewKey) {
+    switch (viewKey) {
+      case 'all':
+        return `
+          <svg class="icon"><use href="#icon-all"/></svg>
+          <h3>No media yet</h3>
+          <p>Add photos, videos, or a whole folder from this device to get started.</p>
+          <button class="btn-primary empty-cta" data-action="add-folder">Add a Folder</button>`;
+      case 'photos':
+        return `
+          <svg class="icon"><use href="#icon-photos"/></svg>
+          <h3>No photos yet</h3>
+          <p>Photos you add will show up here.</p>`;
+      case 'videos':
+        return `
+          <svg class="icon"><use href="#icon-videos"/></svg>
+          <h3>No videos yet</h3>
+          <p>Videos you add will show up here.</p>`;
+      case 'favorites':
+        return `
+          <svg class="icon"><use href="#icon-favorites"/></svg>
+          <h3>No favourites yet</h3>
+          <p>Tap the heart on any photo or video to add it here. Favourites last for this session only.</p>`;
+      case 'folders':
+        return `
+          <svg class="icon"><use href="#icon-folders"/></svg>
+          <h3>No folders yet</h3>
+          <p>Add a folder from this device — folders only show up while their media is present.</p>
+          <button class="btn-primary empty-cta" data-action="add-folder">Add a Folder</button>`;
+      default:
+        return '';
+    }
+  }
+
+  function bindEmptyStateCTA(emptyEl) {
+    const cta = $('.empty-cta', emptyEl);
+    if (!cta) return;
+    cta.addEventListener('click', () => {
+      if (cta.dataset.action === 'add-folder') folderInput.click();
+      else fileInput.click();
+    });
+  }
+
+  /* --------------------------------- Folders ----------------------------------- */
+
+  function getFolderMap() {
+    const map = new Map();
+    for (const item of mediaItems) {
+      if (!item.folderPath) continue;
+      if (!map.has(item.folderPath)) map.set(item.folderPath, []);
+      map.get(item.folderPath).push(item);
+    }
+    return map;
+  }
+
+  function renderFolders() {
+    const section = $('#view-folders');
+    const gridEl = $('.folder-grid', section);
+    const emptyEl = $('.empty-state', section);
+    const folderMap = getFolderMap();
+    const folderPaths = Array.from(folderMap.keys()).sort((a, b) => a.localeCompare(b));
+
+    gridEl.innerHTML = '';
+
+    if (!folderPaths.length) {
+      gridEl.hidden = true;
+      emptyEl.hidden = false;
+      emptyEl.innerHTML = emptyStateHTML('folders');
+      bindEmptyStateCTA(emptyEl);
+      return;
+    }
+
+    gridEl.hidden = false;
+    emptyEl.hidden = true;
+    const frag = document.createDocumentFragment();
+    folderPaths.forEach((path) => frag.appendChild(buildFolderCard(path, folderMap.get(path))));
+    gridEl.appendChild(frag);
+  }
+
+  function buildFolderCard(path, items) {
+    const card = document.createElement('div');
+    card.className = 'folder-card';
+
+    const fan = document.createElement('div');
+    fan.className = 'folder-fan';
+    const sample = items.slice(0, 5);
+    const n = sample.length;
+    sample.forEach((item, i) => {
+      const offset = i - (n - 1) / 2;
+      const c = document.createElement('div');
+      c.className = 'fan-card';
+      c.style.setProperty('--dx', `${offset * 26}px`);
+      c.style.setProperty('--rot', `${offset * 12}deg`);
+      c.style.zIndex = String(10 - Math.round(Math.abs(offset) * 2));
+      const el = item.type === 'photo' ? document.createElement('img') : document.createElement('video');
+      el.src = item.url;
+      if (item.type === 'video') { el.muted = true; el.preload = 'metadata'; }
+      c.appendChild(el);
+      fan.appendChild(c);
+    });
+    card.appendChild(fan);
+
+    const name = document.createElement('div');
+    name.className = 'folder-name';
+    name.textContent = leafName(path);
+    card.appendChild(name);
+
+    const count = document.createElement('div');
+    count.className = 'folder-count';
+    count.textContent = `${items.length} item${items.length === 1 ? '' : 's'}`;
+    card.appendChild(count);
+
+    card.addEventListener('click', () => openFolder(path));
+    return card;
+  }
+
+  /* -------------------------------- Lightbox ------------------------------------ */
+
+  function openLightbox(list, index) {
+    lightboxList = list;
+    lightboxIndex = index;
+    lightboxEl.hidden = false;
+    document.body.style.overflow = 'hidden';
+    renderLightbox();
+  }
+
+  function closeLightbox() {
+    lightboxEl.hidden = true;
+    lightboxMedia.innerHTML = '';
+    document.body.style.overflow = '';
+  }
+
+  function renderLightbox() {
+    const item = lightboxList[lightboxIndex];
+    if (!item) { closeLightbox(); return; }
+
+    lightboxMedia.innerHTML = '';
+    let el;
+    if (item.type === 'photo') {
+      el = document.createElement('img');
+      el.src = item.url;
+      el.alt = item.name;
+    } else {
+      el = document.createElement('video');
+      el.src = item.url;
+      el.controls = true;
+      el.autoplay = true;
+      el.playsInline = true;
+    }
+    lightboxMedia.appendChild(el);
+
+    lightboxCounter.textContent = `${lightboxIndex + 1} / ${lightboxList.length}`;
+    lightboxName.textContent = item.name;
+    lightboxMeta.textContent = [item.folderPath || null, formatBytes(item.size), formatDate(item.lastModified)]
+      .filter(Boolean).join(' · ');
+
+    lightboxPrev.disabled = lightboxIndex <= 0;
+    lightboxNext.disabled = lightboxIndex >= lightboxList.length - 1;
+
+    updateLightboxFavState();
+  }
+
+  function updateLightboxFavState() {
+    const item = lightboxList[lightboxIndex];
+    if (!item) return;
+    lightboxFav.classList.toggle('is-favorite', favorites.has(item.id));
+  }
+
+  function lightboxStep(delta) {
+    const next = lightboxIndex + delta;
+    if (next < 0 || next >= lightboxList.length) return;
+    lightboxIndex = next;
+    renderLightbox();
+  }
+
+  lightboxClose.addEventListener('click', closeLightbox);
+  lightboxPrev.addEventListener('click', () => lightboxStep(-1));
+  lightboxNext.addEventListener('click', () => lightboxStep(1));
+  lightboxFav.addEventListener('click', () => {
+    const item = lightboxList[lightboxIndex];
+    if (item) toggleFavorite(item.id);
+  });
+
+  document.addEventListener('keydown', (e) => {
+    if (lightboxEl.hidden) return;
+    if (e.key === 'Escape') closeLightbox();
+    else if (e.key === 'ArrowLeft') lightboxStep(-1);
+    else if (e.key === 'ArrowRight') lightboxStep(1);
+  });
+
+  // Swipe left/right through the lightbox
+  (function enableLightboxSwipe() {
+    let startX = 0, startY = 0, tracking = false, locked = null;
+    lightboxStage.addEventListener('touchstart', (e) => {
+      if (e.touches.length !== 1) return;
+      startX = e.touches[0].clientX;
+      startY = e.touches[0].clientY;
+      tracking = true;
+      locked = null;
+    }, { passive: true });
+
+    lightboxStage.addEventListener('touchmove', (e) => {
+      if (!tracking) return;
+      const dx = e.touches[0].clientX - startX;
+      const dy = e.touches[0].clientY - startY;
+      if (locked === null) locked = Math.abs(dx) > Math.abs(dy) ? 'x' : 'y';
+    }, { passive: true });
+
+    lightboxStage.addEventListener('touchend', (e) => {
+      if (!tracking) return;
+      tracking = false;
+      const dx = e.changedTouches[0].clientX - startX;
+      if (locked === 'x' && Math.abs(dx) > 50) {
+        if (dx < 0) lightboxStep(1); else lightboxStep(-1);
+      }
+    });
+  })();
+
+  /* ------------------------------ Swipe between tabs -------------------------- */
+
+  (function enableTabSwipe() {
+    const order = ['all', 'photos', 'videos', 'favorites', 'folders'];
+    const content = $('#content');
+    let startX = 0, startY = 0, tracking = false, locked = null;
+
+    content.addEventListener('touchstart', (e) => {
+      if (e.touches.length !== 1 || currentFolder !== null) return;
+      startX = e.touches[0].clientX;
+      startY = e.touches[0].clientY;
+      tracking = true;
+      locked = null;
+    }, { passive: true });
+
+    content.addEventListener('touchmove', (e) => {
+      if (!tracking) return;
+      const dx = e.touches[0].clientX - startX;
+      const dy = e.touches[0].clientY - startY;
+      if (locked === null && (Math.abs(dx) > 8 || Math.abs(dy) > 8)) {
+        locked = Math.abs(dx) > Math.abs(dy) * 1.4 ? 'x' : 'y';
+      }
+    }, { passive: true });
+
+    content.addEventListener('touchend', (e) => {
+      if (!tracking) return;
+      tracking = false;
+      if (locked !== 'x') return;
+      const dx = e.changedTouches[0].clientX - startX;
+      if (Math.abs(dx) < 60) return;
+      const idx = order.indexOf(currentTab);
+      if (dx < 0 && idx < order.length - 1) setActiveTab(order[idx + 1]);
+      else if (dx > 0 && idx > 0) setActiveTab(order[idx - 1]);
+    });
+  })();
+
+  /* ------------------------------- Context menu -------------------------------- */
+
+  function openContextMenu(id, anchorEl) {
+    contextMenuTargetId = id;
+    const isFav = favorites.has(id);
+    const favBtn = $('[data-action="favorite"]', contextMenu);
+    favBtn.classList.toggle('is-favorite', isFav);
+    $('span', favBtn).textContent = isFav ? 'Remove from Favourites' : 'Add to Favourites';
+
+    contextMenu.hidden = false;
+    contextMenuBackdrop.hidden = false;
+
+    const rect = anchorEl.getBoundingClientRect();
+    const menuRect = contextMenu.getBoundingClientRect();
+    let left = rect.right - menuRect.width;
+    let top = rect.bottom + 6;
+    left = Math.max(8, Math.min(left, window.innerWidth - menuRect.width - 8));
+    if (top + menuRect.height > window.innerHeight - 8) top = rect.top - menuRect.height - 6;
+    contextMenu.style.left = `${left}px`;
+    contextMenu.style.top = `${top}px`;
+  }
+
+  function closeContextMenu() {
+    contextMenu.hidden = true;
+    contextMenuBackdrop.hidden = true;
+    contextMenuTargetId = null;
+  }
+
+  contextMenuBackdrop.addEventListener('click', closeContextMenu);
+
+  $$('#contextMenu button').forEach((btn) => {
+    btn.addEventListener('click', () => {
+      const id = contextMenuTargetId;
+      const action = btn.dataset.action;
+      closeContextMenu();
+      if (!id) return;
+      if (action === 'favorite') toggleFavorite(id);
+      else if (action === 'remove') removeItem(id);
+      else if (action === 'info') openInfo(id);
+    });
+  });
+
+  /* --------------------------------- Info sheet --------------------------------- */
+
+  function openInfo(id) {
+    const item = mediaMap.get(id);
+    if (!item) return;
+    infoName.textContent = item.name;
+    infoList.innerHTML = '';
+    const rows = [
+      ['Type', item.type === 'photo' ? 'Photo' : 'Video'],
+      ['Folder', item.folderPath || '—'],
+      ['Size', formatBytes(item.size)],
+      ['Modified', formatDate(item.lastModified)],
+    ];
+    for (const [k, v] of rows) {
+      const dt = document.createElement('dt');
+      dt.textContent = k;
+      const dd = document.createElement('dd');
+      dd.textContent = v;
+      infoList.appendChild(dt);
+      infoList.appendChild(dd);
+    }
+    infoSheet.hidden = false;
+    infoSheetBackdrop.hidden = false;
+  }
+
+  function closeInfo() {
+    infoSheet.hidden = true;
+    infoSheetBackdrop.hidden = true;
+  }
+
+  infoClose.addEventListener('click', closeInfo);
+  infoSheetBackdrop.addEventListener('click', closeInfo);
+
+  /* ---------------------------------- Init --------------------------------------- */
+
+  setActiveTab('all');
+})();
+
+</script>
+</body>
+</html>
