@@ -1,0 +1,147 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Wavecast — Audio Visualizer &amp; Lyrics</title>
+<link rel="stylesheet" href="style.css" />
+</head>
+<body>
+<div class="app">
+
+  <!-- Top bar -->
+  <header class="topbar">
+    <div class="brand">
+      <span class="brand-dot"></span>
+      <span>Wavecast</span>
+    </div>
+    <div class="topbar-actions">
+      <label class="btn btn-ghost" for="audioFile">Open Audio</label>
+      <input type="file" id="audioFile" accept="audio/*" hidden />
+      <label class="btn btn-ghost" for="lyricsFile">Open Lyrics (.lrc/.txt)</label>
+      <input type="file" id="lyricsFile" accept=".lrc,.txt" hidden />
+      <button class="btn btn-ghost" id="pasteLyricsBtn">Paste Lyrics</button>
+      <button class="btn btn-ghost" id="apiKeyBtn">AI Settings</button>
+    </div>
+  </header>
+
+  <!-- Empty state -->
+  <div class="dropzone" id="dropzone">
+    <div class="dropzone-inner">
+      <div class="dropzone-icon">♪</div>
+      <h1>Drop an audio file to begin</h1>
+      <p>MP3, WAV, M4A, OGG — everything stays on your device unless you turn on AI transcription.</p>
+      <label class="btn btn-primary" for="audioFile">Choose Audio File</label>
+    </div>
+  </div>
+
+  <!-- Main stage -->
+  <main class="stage" id="stage" hidden>
+
+    <section class="visualizer-panel">
+      <canvas id="canvas"></canvas>
+      <div class="now-playing">
+        <div class="np-title" id="trackTitle">Untitled Track</div>
+        <div class="np-sub" id="trackSub">—</div>
+      </div>
+      <div class="viz-modes">
+        <button class="chip active" data-mode="bars">Bars</button>
+        <button class="chip" data-mode="radial">Radial</button>
+        <button class="chip" data-mode="wave">Wave</button>
+        <button class="chip" data-mode="particles">Particles</button>
+      </div>
+    </section>
+
+    <section class="lyrics-panel">
+      <div class="lyrics-toolbar">
+        <div class="search-wrap">
+          <input type="text" id="wordSearch" placeholder="Jump to a word or phrase…" autocomplete="off" />
+          <div class="search-nav">
+            <button id="searchPrev" title="Previous match">↑</button>
+            <span id="searchCount">0/0</span>
+            <button id="searchNext" title="Next match">↓</button>
+          </div>
+        </div>
+        <button class="btn btn-small" id="transcribeBtn">✨ Transcribe with AI</button>
+        <button class="btn btn-small" id="summarizeBtn" disabled>📝 Summarize</button>
+      </div>
+
+      <div class="lyrics-scroll" id="lyricsScroll">
+        <div class="lyrics-empty" id="lyricsEmpty">
+          <p>No lyrics loaded yet.</p>
+          <p class="hint">Load an <b>.lrc</b> file, paste plain lyrics, or click
+            <b>✨ Transcribe with AI</b> to automatically detect what's being said,
+            word for word, with an OpenAI API key.</p>
+        </div>
+        <div class="lyrics-lines" id="lyricsLines"></div>
+      </div>
+
+      <div class="summary-panel" id="summaryPanel" hidden>
+        <div class="summary-header">
+          <span>Everything you said</span>
+          <button class="btn-icon" id="closeSummary">✕</button>
+        </div>
+        <div class="summary-stats" id="summaryStats"></div>
+        <div class="summary-text" id="summaryText"></div>
+      </div>
+    </section>
+  </main>
+
+  <!-- Transport -->
+  <footer class="transport" id="transport" hidden>
+    <button class="transport-btn" id="playBtn" title="Play/Pause (Space)">
+      <svg id="playIcon" viewBox="0 0 24 24"><path d="M8 5v14l11-7z"/></svg>
+      <svg id="pauseIcon" viewBox="0 0 24 24" hidden><path d="M6 5h4v14H6zm8 0h4v14h-4z"/></svg>
+    </button>
+    <span class="time" id="curTime">0:00</span>
+    <div class="seek-wrap">
+      <div class="seek-track" id="seekTrack">
+        <div class="seek-fill" id="seekFill"></div>
+        <div class="seek-handle" id="seekHandle"></div>
+        <div class="seek-markers" id="seekMarkers"></div>
+      </div>
+    </div>
+    <span class="time" id="durTime">0:00</span>
+    <div class="volume-wrap">
+      <span class="vol-icon">🔊</span>
+      <input type="range" id="volumeSlider" min="0" max="1" step="0.01" value="1" />
+    </div>
+  </footer>
+
+</div>
+
+<!-- Paste lyrics modal -->
+<div class="modal" id="pasteLyricsModal" hidden>
+  <div class="modal-card">
+    <h2>Paste Lyrics</h2>
+    <p class="modal-hint">Paste plain text (one line per lyric) or full LRC/enhanced-LRC content with <code>[mm:ss.xx]</code> timestamps.</p>
+    <textarea id="lyricsTextarea" rows="10" placeholder="[00:12.30] Hello, world&#10;[00:15.80] This is a lyric line…"></textarea>
+    <div class="modal-actions">
+      <button class="btn btn-ghost" id="cancelPasteLyrics">Cancel</button>
+      <button class="btn btn-primary" id="applyPasteLyrics">Apply</button>
+    </div>
+  </div>
+</div>
+
+<!-- API key modal -->
+<div class="modal" id="apiKeyModal" hidden>
+  <div class="modal-card">
+    <h2>AI Settings</h2>
+    <p class="modal-hint">
+      Transcription and summaries use your own OpenAI API key, called directly from
+      your browser to <code>api.openai.com</code>. Your key is stored only in this
+      browser's <code>localStorage</code> — it is never sent anywhere else.
+    </p>
+    <input type="password" id="apiKeyInput" placeholder="sk-…" autocomplete="off" />
+    <div class="modal-actions">
+      <button class="btn btn-ghost" id="clearApiKey">Clear Key</button>
+      <button class="btn btn-primary" id="saveApiKey">Save</button>
+    </div>
+  </div>
+</div>
+
+<div class="toast" id="toast" hidden></div>
+
+<script src="app.js"></script>
+</body>
+</html>
