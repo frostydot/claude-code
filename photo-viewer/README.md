@@ -54,6 +54,14 @@ environments (like Koder) that run one HTML file.
 - **Per-item menu** (••• button) for Add/Remove Favourite, Move to Folder,
   Info (type, folder, size, date), and Remove from the library. A heart
   button on every tile is a one-tap favourite shortcut.
+- **Select mode** for mass-organizing: tap the select-circle button in the
+  topbar (on any media grid — All/Photos/Videos/Favourites, or inside a
+  folder) to switch into multi-select. Tap tiles to select them, use
+  **Select All** in the topbar to grab everything currently in view, then
+  use the bottom action bar to **Favourite/Unfavourite**, **Move** the whole
+  selection into a folder (or a brand new one) in one shot, or **Remove**
+  them all — each action exits select mode when it's done. **Cancel** backs
+  out without doing anything.
 - Light/dark mode aware, responsive, touch-target sized for mobile.
 
 ## Performance

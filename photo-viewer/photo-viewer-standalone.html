@@ -152,6 +152,19 @@ button {
 .icon-btn:active { transform: scale(0.9); background: rgba(0, 113, 227, 0.12); }
 .icon-btn.hidden-btn { display: none; }
 
+.text-btn {
+  color: var(--accent);
+  font-size: 15px;
+  font-weight: 600;
+  padding: 8px 6px;
+  min-height: 44px;
+  display: flex;
+  align-items: center;
+  white-space: nowrap;
+}
+.text-btn:active { opacity: 0.6; }
+.text-btn.hidden-btn { display: none; }
+
 /* ---------------------------- Main content ------------------------------ */
 
 #content {
@@ -292,6 +305,44 @@ button {
   .tile .fav-btn, .tile .menu-btn { opacity: 1; }
 }
 
+/* ------------------------------- Select mode ------------------------------ */
+
+.select-indicator {
+  display: none;
+  position: absolute;
+  top: 6px;
+  right: 6px;
+  width: 24px;
+  height: 24px;
+  border-radius: 50%;
+  border: 2px solid rgba(255, 255, 255, 0.85);
+  background: rgba(0, 0, 0, 0.25);
+  align-items: center;
+  justify-content: center;
+  color: transparent;
+  transition: background 0.15s var(--ease), border-color 0.15s var(--ease), transform 0.12s var(--ease);
+}
+.select-indicator .icon { width: 15px; height: 15px; stroke-width: 3; }
+.tile.selected .select-indicator {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: #fff;
+  transform: scale(1.05);
+}
+
+body.select-mode .tile .fav-btn,
+body.select-mode .tile .menu-btn { display: none; }
+body.select-mode .tile .select-indicator { display: flex; }
+
+.tile.selected { box-shadow: inset 0 0 0 3px var(--accent); }
+.tile.selected::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: rgba(0, 113, 227, 0.18);
+  pointer-events: none;
+}
+
 /* ------------------------------ Empty state ------------------------------ */
 
 .empty-state {
@@ -376,6 +427,12 @@ button {
 .tab-btn.active .icon { transform: translateY(-1px) scale(1.05); }
 .tab-btn:active .icon { transform: scale(0.88); }
 .tab-btn[data-tab="favorites"].active { color: var(--favorite); }
+
+/* Selection action bar reuses .tab-btn styling for its 3 buttons */
+.tab-btn:disabled { opacity: 0.35; pointer-events: none; }
+.tab-btn.danger-tab { color: var(--danger); }
+.tab-btn.is-favorite { color: var(--favorite); }
+.tab-btn.is-favorite .icon { fill: var(--favorite); stroke: var(--favorite); }
 
 /* -------------------------------- Folders --------------------------------- */
 
@@ -783,6 +840,7 @@ button {
   <symbol id="icon-info" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M12 11v5.5"/><circle cx="12" cy="7.7" r="1"/></symbol>
   <symbol id="icon-check" viewBox="0 0 24 24"><path d="M5 12.5l4.5 4.5L19 7"/></symbol>
   <symbol id="icon-pencil" viewBox="0 0 24 24"><path d="M4 20l1-4.2L15.8 5 19 8.2 8.2 19 4 20z"/><path d="M13.5 6.5l4 4"/></symbol>
+  <symbol id="icon-select" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M8 12.5l2.5 2.5L16 9.5"/></symbol>
 </svg>
 
 <div id="app">
@@ -790,8 +848,13 @@ button {
   <header class="topbar">
     <h1 id="topbarTitle">Photos</h1>
     <div class="topbar-actions">
+      <button class="text-btn hidden-btn" id="selectAllBtn">Select All</button>
+      <button class="text-btn hidden-btn" id="cancelSelectBtn">Cancel</button>
       <button class="icon-btn" id="newFolderBtn" aria-label="New folder">
         <svg class="icon"><use href="#icon-folder-plus"/></svg>
+      </button>
+      <button class="icon-btn" id="selectModeBtn" aria-label="Select items">
+        <svg class="icon"><use href="#icon-select"/></svg>
       </button>
       <button class="icon-btn" id="addFilesBtn" aria-label="Add photos or videos">
         <svg class="icon"><use href="#icon-plus"/></svg>
@@ -838,7 +901,7 @@ button {
     </section>
   </main>
 
-  <nav class="tabbar">
+  <nav class="tabbar" id="mainTabbar">
     <button class="tab-btn active" data-tab="all">
       <svg class="icon"><use href="#icon-all"/></svg>
       <span>All</span>
@@ -858,6 +921,22 @@ button {
     <button class="tab-btn" data-tab="folders">
       <svg class="icon"><use href="#icon-folders"/></svg>
       <span>Folders</span>
+    </button>
+  </nav>
+
+  <!-- Selection action bar — replaces the tab bar while Select mode is on -->
+  <nav class="tabbar" id="selectActionBar" hidden>
+    <button class="tab-btn" id="selectFavBtn" disabled>
+      <svg class="icon"><use href="#icon-favorites"/></svg>
+      <span>Favourite</span>
+    </button>
+    <button class="tab-btn" id="selectMoveBtn" disabled>
+      <svg class="icon"><use href="#icon-folders"/></svg>
+      <span>Move</span>
+    </button>
+    <button class="tab-btn danger-tab" id="selectRemoveBtn" disabled>
+      <svg class="icon"><use href="#icon-trash"/></svg>
+      <span>Remove</span>
     </button>
   </nav>
 
@@ -974,10 +1053,13 @@ button {
 
   let contextMenuTargetId = null;
   let folderMenuTargetId = null;
-  let moveSheetItemId = null;
+  let moveSheetItemIds = [];
   let folderSheetMode = null;         // 'create' | 'rename'
   let folderSheetTargetFolderId = null;
-  let folderSheetAssignItemId = null;
+  let folderSheetAssignItemIds = null;
+
+  let selectMode = false;
+  const selectedIds = new Set();
 
   const IMAGE_EXT = /\.(jpe?g|png|gif|webp|heic|heif|bmp|tiff?|avif)$/i;
   const VIDEO_EXT = /\.(mp4|mov|m4v|webm|mkv|avi|3gp)$/i;
@@ -999,8 +1081,17 @@ button {
   const fileInput = $('#fileInput');
   const addFilesBtn = $('#addFilesBtn');
   const newFolderBtn = $('#newFolderBtn');
+  const selectModeBtn = $('#selectModeBtn');
+  const selectAllBtn = $('#selectAllBtn');
+  const cancelSelectBtn = $('#cancelSelectBtn');
 
-  const tabBtns = $$('.tab-btn');
+  const mainTabbar = $('#mainTabbar');
+  const selectActionBar = $('#selectActionBar');
+  const selectFavBtn = $('#selectFavBtn');
+  const selectMoveBtn = $('#selectMoveBtn');
+  const selectRemoveBtn = $('#selectRemoveBtn');
+
+  const tabBtns = $$('.tab-btn', mainTabbar);
   const folderBackBtn = $('#folderBackBtn');
   const folderDetailTitle = $('#folderDetailTitle');
 
@@ -1400,15 +1491,22 @@ button {
     }
   }
 
-  function removeItem(id) {
+  // No render/save-triggering side effect beyond what's strictly needed to
+  // drop the item — lets bulk removal do its own single reindex + render
+  // instead of one per item.
+  function removeItemCore(id) {
     const idx = mediaItems.findIndex((i) => i.id === id);
     if (idx === -1) return;
     const [item] = mediaItems.splice(idx, 1);
     mediaMap.delete(id);
     favorites.delete(id);
-    saveFavorites();
     URL.revokeObjectURL(item.url);
     if (item.thumbUrl) URL.revokeObjectURL(item.thumbUrl);
+  }
+
+  function removeItem(id) {
+    removeItemCore(id);
+    saveFavorites();
     reindexPositions();
     renderActive();
   }
@@ -1420,34 +1518,68 @@ button {
   });
 
   function setActiveTab(tab) {
+    exitSelectMode(true);
     currentTab = tab;
     currentFolder = null;
     tabBtns.forEach((b) => b.classList.toggle('active', b.dataset.tab === tab));
     $$('.view').forEach((v) => v.classList.remove('active'));
     $(`#view-${tab}`).classList.add('active');
-    topbarTitle.textContent = TAB_TITLES[tab];
-    updateTopbarActions();
+    syncTopbar();
     renderActive();
   }
 
-  function updateTopbarActions() {
-    // "New Folder" only makes sense while looking at the Folders grid itself
-    // (not drilled into one specific folder, and not on a media tab).
-    newFolderBtn.classList.toggle('hidden-btn', !(currentTab === 'folders' && currentFolder === null));
+  // Single source of truth for the topbar's title + which action buttons show,
+  // across normal browsing, drilled-into-a-folder, and select mode.
+  function syncTopbar() {
+    const onFoldersOverview = currentTab === 'folders' && currentFolder === null;
+
+    if (selectMode) {
+      topbarTitle.textContent = selectedIds.size > 0 ? `${selectedIds.size} Selected` : 'Select Items';
+      newFolderBtn.classList.add('hidden-btn');
+      addFilesBtn.classList.add('hidden-btn');
+      selectModeBtn.classList.add('hidden-btn');
+      selectAllBtn.classList.remove('hidden-btn');
+      cancelSelectBtn.classList.remove('hidden-btn');
+      const list = getCurrentGridItems();
+      selectAllBtn.textContent = list.length > 0 && list.every((it) => selectedIds.has(it.id)) ? 'Deselect All' : 'Select All';
+      return;
+    }
+
+    if (currentFolder !== null) {
+      const folder = folders.find((f) => f.id === currentFolder);
+      topbarTitle.textContent = folder ? folder.name : 'Folder';
+    } else {
+      topbarTitle.textContent = TAB_TITLES[currentTab];
+    }
+    newFolderBtn.classList.toggle('hidden-btn', !onFoldersOverview);
+    selectModeBtn.classList.toggle('hidden-btn', onFoldersOverview);
+    addFilesBtn.classList.remove('hidden-btn');
+    selectAllBtn.classList.add('hidden-btn');
+    cancelSelectBtn.classList.add('hidden-btn');
   }
 
   folderBackBtn.addEventListener('click', () => setActiveTab('folders'));
 
   function openFolder(folderId) {
+    exitSelectMode(true);
     currentFolder = folderId;
     $$('.view').forEach((v) => v.classList.remove('active'));
     $('#view-folder-detail').classList.add('active');
     const folder = folders.find((f) => f.id === folderId);
-    const name = folder ? folder.name : 'Folder';
-    folderDetailTitle.textContent = name;
-    topbarTitle.textContent = name;
-    updateTopbarActions();
+    folderDetailTitle.textContent = folder ? folder.name : 'Folder';
+    syncTopbar();
     renderFolderDetail();
+  }
+
+  function getCurrentGridItems() {
+    if (currentFolder !== null) return mediaItems.filter((i) => i.folderId === currentFolder);
+    switch (currentTab) {
+      case 'all': return mediaItems;
+      case 'photos': return mediaItems.filter((i) => i.type === 'photo');
+      case 'videos': return mediaItems.filter((i) => i.type === 'video');
+      case 'favorites': return mediaItems.filter((i) => favorites.has(i.id));
+      default: return [];
+    }
   }
 
   function renderActive() {
@@ -1543,7 +1675,9 @@ button {
 
   function buildTile(item, contextList) {
     const tile = document.createElement('div');
-    tile.className = 'tile' + (favorites.has(item.id) ? ' is-favorite' : '');
+    tile.className = 'tile'
+      + (favorites.has(item.id) ? ' is-favorite' : '')
+      + (selectMode && selectedIds.has(item.id) ? ' selected' : '');
     tile.dataset.id = item.id;
 
     tile.appendChild(makeThumbImg(item, {
@@ -1582,7 +1716,15 @@ button {
     });
     tile.appendChild(menuBtn);
 
-    tile.addEventListener('click', () => openLightbox(contextList, contextList.indexOf(item)));
+    const selectIndicator = document.createElement('div');
+    selectIndicator.className = 'select-indicator';
+    selectIndicator.innerHTML = '<svg class="icon"><use href="#icon-check"/></svg>';
+    tile.appendChild(selectIndicator);
+
+    tile.addEventListener('click', () => {
+      if (selectMode) toggleSelect(item.id, tile);
+      else openLightbox(contextList, contextList.indexOf(item));
+    });
 
     return tile;
   }
@@ -1593,6 +1735,88 @@ button {
     renderActive();
     if (!lightboxEl.hidden) updateLightboxFavState();
   }
+
+  /* -------------------------------- Select mode -------------------------------- */
+  // Multi-select for mass-favouriting, mass-moving into a folder, or mass-
+  // removing. Entered via the topbar's select-circle button on any media
+  // grid (not the Folders overview itself); the tab bar swaps out for a
+  // 3-button action bar while it's active.
+
+  function setSelectMode(on) {
+    if (selectMode === on) return;
+    selectMode = on;
+    selectedIds.clear();
+    document.body.classList.toggle('select-mode', on);
+    mainTabbar.hidden = on;
+    selectActionBar.hidden = !on;
+    syncTopbar();
+    updateSelectionBar();
+    renderActive();
+  }
+
+  // Used by navigation (tab switch / folder open) to silently drop out of
+  // select mode without forcing a redundant render — the caller re-renders
+  // right after anyway.
+  function exitSelectMode(quiet) {
+    if (!selectMode) return;
+    selectMode = false;
+    selectedIds.clear();
+    document.body.classList.remove('select-mode');
+    mainTabbar.hidden = false;
+    selectActionBar.hidden = true;
+    if (!quiet) { syncTopbar(); updateSelectionBar(); renderActive(); }
+  }
+
+  function toggleSelect(id, tileEl) {
+    if (selectedIds.has(id)) selectedIds.delete(id); else selectedIds.add(id);
+    tileEl.classList.toggle('selected', selectedIds.has(id));
+    syncTopbar();
+    updateSelectionBar();
+  }
+
+  function updateSelectionBar() {
+    const n = selectedIds.size;
+    selectFavBtn.disabled = n === 0;
+    selectMoveBtn.disabled = n === 0;
+    selectRemoveBtn.disabled = n === 0;
+    const allFav = n > 0 && Array.from(selectedIds).every((id) => favorites.has(id));
+    selectFavBtn.classList.toggle('is-favorite', allFav);
+    $('span', selectFavBtn).textContent = allFav ? 'Unfavourite' : 'Favourite';
+  }
+
+  selectModeBtn.addEventListener('click', () => setSelectMode(true));
+  cancelSelectBtn.addEventListener('click', () => setSelectMode(false));
+
+  selectAllBtn.addEventListener('click', () => {
+    const list = getCurrentGridItems();
+    const allSelected = list.length > 0 && list.every((it) => selectedIds.has(it.id));
+    if (allSelected) selectedIds.clear();
+    else list.forEach((it) => selectedIds.add(it.id));
+    syncTopbar();
+    updateSelectionBar();
+    renderActive();
+  });
+
+  selectFavBtn.addEventListener('click', () => {
+    if (!selectedIds.size) return;
+    const allFav = Array.from(selectedIds).every((id) => favorites.has(id));
+    selectedIds.forEach((id) => { if (allFav) favorites.delete(id); else favorites.add(id); });
+    saveFavorites();
+    setSelectMode(false);
+  });
+
+  selectMoveBtn.addEventListener('click', () => {
+    if (!selectedIds.size) return;
+    openMoveSheet(Array.from(selectedIds));
+  });
+
+  selectRemoveBtn.addEventListener('click', () => {
+    if (!selectedIds.size) return;
+    selectedIds.forEach((id) => removeItemCore(id));
+    saveFavorites();
+    reindexPositions();
+    setSelectMode(false);
+  });
 
   /* -------------------------------- Empty states -------------------------------- */
 
@@ -1678,7 +1902,7 @@ button {
     if (!folder) return;
     folder.name = trimmed;
     saveFolders();
-    if (currentFolder === id) { folderDetailTitle.textContent = trimmed; topbarTitle.textContent = trimmed; }
+    if (currentFolder === id) { folderDetailTitle.textContent = trimmed; syncTopbar(); }
     renderActive();
   }
 
@@ -1695,19 +1919,27 @@ button {
     else renderActive();
   }
 
-  function assignToFolder(itemId, folderId) {
+  function assignToFolderSilent(itemId, folderId) {
     assignments[itemId] = folderId;
-    saveAssignments();
     const item = mediaMap.get(itemId);
     if (item) item.folderId = folderId;
+  }
+
+  function removeFromFolderSilent(itemId) {
+    delete assignments[itemId];
+    const item = mediaMap.get(itemId);
+    if (item) item.folderId = null;
+  }
+
+  function assignToFolder(itemId, folderId) {
+    assignToFolderSilent(itemId, folderId);
+    saveAssignments();
     renderActive();
   }
 
   function removeFromFolder(itemId) {
-    delete assignments[itemId];
+    removeFromFolderSilent(itemId);
     saveAssignments();
-    const item = mediaMap.get(itemId);
-    if (item) item.folderId = null;
     renderActive();
   }
 
@@ -1780,10 +2012,10 @@ button {
 
   /* ---------------------------- New Folder / Rename sheet ---------------------------- */
 
-  function openFolderNameSheet(mode, folderId, assignItemId) {
+  function openFolderNameSheet(mode, folderId, assignItemIds) {
     folderSheetMode = mode;
     folderSheetTargetFolderId = folderId;
-    folderSheetAssignItemId = assignItemId || null;
+    folderSheetAssignItemIds = assignItemIds && assignItemIds.length ? assignItemIds : null;
     if (mode === 'rename') {
       const f = folders.find((x) => x.id === folderId);
       folderNameTitle.textContent = 'Rename Folder';
@@ -1804,7 +2036,7 @@ button {
     folderNameBackdrop.hidden = true;
     folderSheetMode = null;
     folderSheetTargetFolderId = null;
-    folderSheetAssignItemId = null;
+    folderSheetAssignItemIds = null;
   }
 
   function submitFolderNameSheet() {
@@ -1814,8 +2046,13 @@ button {
       renameFolder(folderSheetTargetFolderId, name);
     } else {
       const folder = createFolder(name);
-      if (folder && folderSheetAssignItemId) assignToFolder(folderSheetAssignItemId, folder.id);
-      else renderActive();
+      if (folder && folderSheetAssignItemIds) {
+        folderSheetAssignItemIds.forEach((id) => assignToFolderSilent(id, folder.id));
+        saveAssignments();
+        if (selectMode) setSelectMode(false); else renderActive();
+      } else {
+        renderActive();
+      }
     }
     closeFolderNameSheet();
   }
@@ -1841,29 +2078,45 @@ button {
     return btn;
   }
 
-  function openMoveSheet(itemId) {
-    moveSheetItemId = itemId;
-    const item = mediaMap.get(itemId);
+  // `ids` is always an array — a single-item ••• menu passes a 1-element
+  // array, mass-select passes every currently-selected id. Assigning always
+  // sets every given item to the chosen folder in one shot; the "checked"
+  // mark on a folder row only lights up when the entire selection is
+  // already, unambiguously, in that one folder.
+  function openMoveSheet(ids) {
+    moveSheetItemIds = ids;
+    const items = ids.map((id) => mediaMap.get(id)).filter(Boolean);
     moveFolderList.innerHTML = '';
 
-    if (item && item.folderId) {
+    if (items.some((it) => it.folderId)) {
       moveFolderList.appendChild(buildMoveRow({
         icon: 'icon-x', label: 'Remove from Folder', danger: true,
-        onClick: () => { removeFromFolder(itemId); closeMoveSheet(); },
+        onClick: () => {
+          ids.forEach(removeFromFolderSilent);
+          saveAssignments();
+          closeMoveSheet();
+          if (selectMode) setSelectMode(false); else renderActive();
+        },
       }));
     }
 
     const newRow = buildMoveRow({
       icon: 'icon-folder-plus', label: 'New Folder…',
-      onClick: () => { closeMoveSheet(); openFolderNameSheet('create', null, itemId); },
+      onClick: () => { closeMoveSheet(); openFolderNameSheet('create', null, ids); },
     });
     newRow.classList.add('new-row');
     moveFolderList.appendChild(newRow);
 
     folders.slice().sort((a, b) => a.name.localeCompare(b.name)).forEach((folder) => {
       moveFolderList.appendChild(buildMoveRow({
-        icon: 'icon-folders', label: folder.name, checked: !!item && item.folderId === folder.id,
-        onClick: () => { assignToFolder(itemId, folder.id); closeMoveSheet(); },
+        icon: 'icon-folders', label: folder.name,
+        checked: items.length > 0 && items.every((it) => it.folderId === folder.id),
+        onClick: () => {
+          ids.forEach((id) => assignToFolderSilent(id, folder.id));
+          saveAssignments();
+          closeMoveSheet();
+          if (selectMode) setSelectMode(false); else renderActive();
+        },
       }));
     });
 
@@ -1874,7 +2127,7 @@ button {
   function closeMoveSheet() {
     moveSheet.hidden = true;
     moveSheetBackdrop.hidden = true;
-    moveSheetItemId = null;
+    moveSheetItemIds = [];
   }
 
   moveSheetBackdrop.addEventListener('click', closeMoveSheet);
@@ -1887,7 +2140,7 @@ button {
     let startX = 0, startY = 0, tracking = false, locked = null;
 
     content.addEventListener('touchstart', (e) => {
-      if (e.touches.length !== 1 || currentFolder !== null) return;
+      if (e.touches.length !== 1 || currentFolder !== null || selectMode) return;
       startX = e.touches[0].clientX;
       startY = e.touches[0].clientY;
       tracking = true;
@@ -2236,7 +2489,7 @@ button {
       closeContextMenu();
       if (!id) return;
       if (action === 'favorite') toggleFavorite(id);
-      else if (action === 'move') openMoveSheet(id);
+      else if (action === 'move') openMoveSheet([id]);
       else if (action === 'remove') removeItem(id);
       else if (action === 'info') openInfo(id);
     });

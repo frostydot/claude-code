@@ -144,6 +144,19 @@ button {
 .icon-btn:active { transform: scale(0.9); background: rgba(0, 113, 227, 0.12); }
 .icon-btn.hidden-btn { display: none; }
 
+.text-btn {
+  color: var(--accent);
+  font-size: 15px;
+  font-weight: 600;
+  padding: 8px 6px;
+  min-height: 44px;
+  display: flex;
+  align-items: center;
+  white-space: nowrap;
+}
+.text-btn:active { opacity: 0.6; }
+.text-btn.hidden-btn { display: none; }
+
 /* ---------------------------- Main content ------------------------------ */
 
 #content {
@@ -284,6 +297,44 @@ button {
   .tile .fav-btn, .tile .menu-btn { opacity: 1; }
 }
 
+/* ------------------------------- Select mode ------------------------------ */
+
+.select-indicator {
+  display: none;
+  position: absolute;
+  top: 6px;
+  right: 6px;
+  width: 24px;
+  height: 24px;
+  border-radius: 50%;
+  border: 2px solid rgba(255, 255, 255, 0.85);
+  background: rgba(0, 0, 0, 0.25);
+  align-items: center;
+  justify-content: center;
+  color: transparent;
+  transition: background 0.15s var(--ease), border-color 0.15s var(--ease), transform 0.12s var(--ease);
+}
+.select-indicator .icon { width: 15px; height: 15px; stroke-width: 3; }
+.tile.selected .select-indicator {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: #fff;
+  transform: scale(1.05);
+}
+
+body.select-mode .tile .fav-btn,
+body.select-mode .tile .menu-btn { display: none; }
+body.select-mode .tile .select-indicator { display: flex; }
+
+.tile.selected { box-shadow: inset 0 0 0 3px var(--accent); }
+.tile.selected::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: rgba(0, 113, 227, 0.18);
+  pointer-events: none;
+}
+
 /* ------------------------------ Empty state ------------------------------ */
 
 .empty-state {
@@ -368,6 +419,12 @@ button {
 .tab-btn.active .icon { transform: translateY(-1px) scale(1.05); }
 .tab-btn:active .icon { transform: scale(0.88); }
 .tab-btn[data-tab="favorites"].active { color: var(--favorite); }
+
+/* Selection action bar reuses .tab-btn styling for its 3 buttons */
+.tab-btn:disabled { opacity: 0.35; pointer-events: none; }
+.tab-btn.danger-tab { color: var(--danger); }
+.tab-btn.is-favorite { color: var(--favorite); }
+.tab-btn.is-favorite .icon { fill: var(--favorite); stroke: var(--favorite); }
 
 /* -------------------------------- Folders --------------------------------- */
 

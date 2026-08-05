@@ -31,10 +31,13 @@
 
   let contextMenuTargetId = null;
   let folderMenuTargetId = null;
-  let moveSheetItemId = null;
+  let moveSheetItemIds = [];
   let folderSheetMode = null;         // 'create' | 'rename'
   let folderSheetTargetFolderId = null;
-  let folderSheetAssignItemId = null;
+  let folderSheetAssignItemIds = null;
+
+  let selectMode = false;
+  const selectedIds = new Set();
 
   const IMAGE_EXT = /\.(jpe?g|png|gif|webp|heic|heif|bmp|tiff?|avif)$/i;
   const VIDEO_EXT = /\.(mp4|mov|m4v|webm|mkv|avi|3gp)$/i;
@@ -56,8 +59,17 @@
   const fileInput = $('#fileInput');
   const addFilesBtn = $('#addFilesBtn');
   const newFolderBtn = $('#newFolderBtn');
+  const selectModeBtn = $('#selectModeBtn');
+  const selectAllBtn = $('#selectAllBtn');
+  const cancelSelectBtn = $('#cancelSelectBtn');
 
-  const tabBtns = $$('.tab-btn');
+  const mainTabbar = $('#mainTabbar');
+  const selectActionBar = $('#selectActionBar');
+  const selectFavBtn = $('#selectFavBtn');
+  const selectMoveBtn = $('#selectMoveBtn');
+  const selectRemoveBtn = $('#selectRemoveBtn');
+
+  const tabBtns = $$('.tab-btn', mainTabbar);
   const folderBackBtn = $('#folderBackBtn');
   const folderDetailTitle = $('#folderDetailTitle');
 
@@ -457,15 +469,22 @@
     }
   }
 
-  function removeItem(id) {
+  // No render/save-triggering side effect beyond what's strictly needed to
+  // drop the item — lets bulk removal do its own single reindex + render
+  // instead of one per item.
+  function removeItemCore(id) {
     const idx = mediaItems.findIndex((i) => i.id === id);
     if (idx === -1) return;
     const [item] = mediaItems.splice(idx, 1);
     mediaMap.delete(id);
     favorites.delete(id);
-    saveFavorites();
     URL.revokeObjectURL(item.url);
     if (item.thumbUrl) URL.revokeObjectURL(item.thumbUrl);
+  }
+
+  function removeItem(id) {
+    removeItemCore(id);
+    saveFavorites();
     reindexPositions();
     renderActive();
   }
@@ -477,34 +496,68 @@
   });
 
   function setActiveTab(tab) {
+    exitSelectMode(true);
     currentTab = tab;
     currentFolder = null;
     tabBtns.forEach((b) => b.classList.toggle('active', b.dataset.tab === tab));
     $$('.view').forEach((v) => v.classList.remove('active'));
     $(`#view-${tab}`).classList.add('active');
-    topbarTitle.textContent = TAB_TITLES[tab];
-    updateTopbarActions();
+    syncTopbar();
     renderActive();
   }
 
-  function updateTopbarActions() {
-    // "New Folder" only makes sense while looking at the Folders grid itself
-    // (not drilled into one specific folder, and not on a media tab).
-    newFolderBtn.classList.toggle('hidden-btn', !(currentTab === 'folders' && currentFolder === null));
+  // Single source of truth for the topbar's title + which action buttons show,
+  // across normal browsing, drilled-into-a-folder, and select mode.
+  function syncTopbar() {
+    const onFoldersOverview = currentTab === 'folders' && currentFolder === null;
+
+    if (selectMode) {
+      topbarTitle.textContent = selectedIds.size > 0 ? `${selectedIds.size} Selected` : 'Select Items';
+      newFolderBtn.classList.add('hidden-btn');
+      addFilesBtn.classList.add('hidden-btn');
+      selectModeBtn.classList.add('hidden-btn');
+      selectAllBtn.classList.remove('hidden-btn');
+      cancelSelectBtn.classList.remove('hidden-btn');
+      const list = getCurrentGridItems();
+      selectAllBtn.textContent = list.length > 0 && list.every((it) => selectedIds.has(it.id)) ? 'Deselect All' : 'Select All';
+      return;
+    }
+
+    if (currentFolder !== null) {
+      const folder = folders.find((f) => f.id === currentFolder);
+      topbarTitle.textContent = folder ? folder.name : 'Folder';
+    } else {
+      topbarTitle.textContent = TAB_TITLES[currentTab];
+    }
+    newFolderBtn.classList.toggle('hidden-btn', !onFoldersOverview);
+    selectModeBtn.classList.toggle('hidden-btn', onFoldersOverview);
+    addFilesBtn.classList.remove('hidden-btn');
+    selectAllBtn.classList.add('hidden-btn');
+    cancelSelectBtn.classList.add('hidden-btn');
   }
 
   folderBackBtn.addEventListener('click', () => setActiveTab('folders'));
 
   function openFolder(folderId) {
+    exitSelectMode(true);
     currentFolder = folderId;
     $$('.view').forEach((v) => v.classList.remove('active'));
     $('#view-folder-detail').classList.add('active');
     const folder = folders.find((f) => f.id === folderId);
-    const name = folder ? folder.name : 'Folder';
-    folderDetailTitle.textContent = name;
-    topbarTitle.textContent = name;
-    updateTopbarActions();
+    folderDetailTitle.textContent = folder ? folder.name : 'Folder';
+    syncTopbar();
     renderFolderDetail();
+  }
+
+  function getCurrentGridItems() {
+    if (currentFolder !== null) return mediaItems.filter((i) => i.folderId === currentFolder);
+    switch (currentTab) {
+      case 'all': return mediaItems;
+      case 'photos': return mediaItems.filter((i) => i.type === 'photo');
+      case 'videos': return mediaItems.filter((i) => i.type === 'video');
+      case 'favorites': return mediaItems.filter((i) => favorites.has(i.id));
+      default: return [];
+    }
   }
 
   function renderActive() {
@@ -600,7 +653,9 @@
 
   function buildTile(item, contextList) {
     const tile = document.createElement('div');
-    tile.className = 'tile' + (favorites.has(item.id) ? ' is-favorite' : '');
+    tile.className = 'tile'
+      + (favorites.has(item.id) ? ' is-favorite' : '')
+      + (selectMode && selectedIds.has(item.id) ? ' selected' : '');
     tile.dataset.id = item.id;
 
     tile.appendChild(makeThumbImg(item, {
@@ -639,7 +694,15 @@
     });
     tile.appendChild(menuBtn);
 
-    tile.addEventListener('click', () => openLightbox(contextList, contextList.indexOf(item)));
+    const selectIndicator = document.createElement('div');
+    selectIndicator.className = 'select-indicator';
+    selectIndicator.innerHTML = '<svg class="icon"><use href="#icon-check"/></svg>';
+    tile.appendChild(selectIndicator);
+
+    tile.addEventListener('click', () => {
+      if (selectMode) toggleSelect(item.id, tile);
+      else openLightbox(contextList, contextList.indexOf(item));
+    });
 
     return tile;
   }
@@ -650,6 +713,88 @@
     renderActive();
     if (!lightboxEl.hidden) updateLightboxFavState();
   }
+
+  /* -------------------------------- Select mode -------------------------------- */
+  // Multi-select for mass-favouriting, mass-moving into a folder, or mass-
+  // removing. Entered via the topbar's select-circle button on any media
+  // grid (not the Folders overview itself); the tab bar swaps out for a
+  // 3-button action bar while it's active.
+
+  function setSelectMode(on) {
+    if (selectMode === on) return;
+    selectMode = on;
+    selectedIds.clear();
+    document.body.classList.toggle('select-mode', on);
+    mainTabbar.hidden = on;
+    selectActionBar.hidden = !on;
+    syncTopbar();
+    updateSelectionBar();
+    renderActive();
+  }
+
+  // Used by navigation (tab switch / folder open) to silently drop out of
+  // select mode without forcing a redundant render — the caller re-renders
+  // right after anyway.
+  function exitSelectMode(quiet) {
+    if (!selectMode) return;
+    selectMode = false;
+    selectedIds.clear();
+    document.body.classList.remove('select-mode');
+    mainTabbar.hidden = false;
+    selectActionBar.hidden = true;
+    if (!quiet) { syncTopbar(); updateSelectionBar(); renderActive(); }
+  }
+
+  function toggleSelect(id, tileEl) {
+    if (selectedIds.has(id)) selectedIds.delete(id); else selectedIds.add(id);
+    tileEl.classList.toggle('selected', selectedIds.has(id));
+    syncTopbar();
+    updateSelectionBar();
+  }
+
+  function updateSelectionBar() {
+    const n = selectedIds.size;
+    selectFavBtn.disabled = n === 0;
+    selectMoveBtn.disabled = n === 0;
+    selectRemoveBtn.disabled = n === 0;
+    const allFav = n > 0 && Array.from(selectedIds).every((id) => favorites.has(id));
+    selectFavBtn.classList.toggle('is-favorite', allFav);
+    $('span', selectFavBtn).textContent = allFav ? 'Unfavourite' : 'Favourite';
+  }
+
+  selectModeBtn.addEventListener('click', () => setSelectMode(true));
+  cancelSelectBtn.addEventListener('click', () => setSelectMode(false));
+
+  selectAllBtn.addEventListener('click', () => {
+    const list = getCurrentGridItems();
+    const allSelected = list.length > 0 && list.every((it) => selectedIds.has(it.id));
+    if (allSelected) selectedIds.clear();
+    else list.forEach((it) => selectedIds.add(it.id));
+    syncTopbar();
+    updateSelectionBar();
+    renderActive();
+  });
+
+  selectFavBtn.addEventListener('click', () => {
+    if (!selectedIds.size) return;
+    const allFav = Array.from(selectedIds).every((id) => favorites.has(id));
+    selectedIds.forEach((id) => { if (allFav) favorites.delete(id); else favorites.add(id); });
+    saveFavorites();
+    setSelectMode(false);
+  });
+
+  selectMoveBtn.addEventListener('click', () => {
+    if (!selectedIds.size) return;
+    openMoveSheet(Array.from(selectedIds));
+  });
+
+  selectRemoveBtn.addEventListener('click', () => {
+    if (!selectedIds.size) return;
+    selectedIds.forEach((id) => removeItemCore(id));
+    saveFavorites();
+    reindexPositions();
+    setSelectMode(false);
+  });
 
   /* -------------------------------- Empty states -------------------------------- */
 
@@ -735,7 +880,7 @@
     if (!folder) return;
     folder.name = trimmed;
     saveFolders();
-    if (currentFolder === id) { folderDetailTitle.textContent = trimmed; topbarTitle.textContent = trimmed; }
+    if (currentFolder === id) { folderDetailTitle.textContent = trimmed; syncTopbar(); }
     renderActive();
   }
 
@@ -752,19 +897,27 @@
     else renderActive();
   }
 
-  function assignToFolder(itemId, folderId) {
+  function assignToFolderSilent(itemId, folderId) {
     assignments[itemId] = folderId;
-    saveAssignments();
     const item = mediaMap.get(itemId);
     if (item) item.folderId = folderId;
+  }
+
+  function removeFromFolderSilent(itemId) {
+    delete assignments[itemId];
+    const item = mediaMap.get(itemId);
+    if (item) item.folderId = null;
+  }
+
+  function assignToFolder(itemId, folderId) {
+    assignToFolderSilent(itemId, folderId);
+    saveAssignments();
     renderActive();
   }
 
   function removeFromFolder(itemId) {
-    delete assignments[itemId];
+    removeFromFolderSilent(itemId);
     saveAssignments();
-    const item = mediaMap.get(itemId);
-    if (item) item.folderId = null;
     renderActive();
   }
 
@@ -837,10 +990,10 @@
 
   /* ---------------------------- New Folder / Rename sheet ---------------------------- */
 
-  function openFolderNameSheet(mode, folderId, assignItemId) {
+  function openFolderNameSheet(mode, folderId, assignItemIds) {
     folderSheetMode = mode;
     folderSheetTargetFolderId = folderId;
-    folderSheetAssignItemId = assignItemId || null;
+    folderSheetAssignItemIds = assignItemIds && assignItemIds.length ? assignItemIds : null;
     if (mode === 'rename') {
       const f = folders.find((x) => x.id === folderId);
       folderNameTitle.textContent = 'Rename Folder';
@@ -861,7 +1014,7 @@
     folderNameBackdrop.hidden = true;
     folderSheetMode = null;
     folderSheetTargetFolderId = null;
-    folderSheetAssignItemId = null;
+    folderSheetAssignItemIds = null;
   }
 
   function submitFolderNameSheet() {
@@ -871,8 +1024,13 @@
       renameFolder(folderSheetTargetFolderId, name);
     } else {
       const folder = createFolder(name);
-      if (folder && folderSheetAssignItemId) assignToFolder(folderSheetAssignItemId, folder.id);
-      else renderActive();
+      if (folder && folderSheetAssignItemIds) {
+        folderSheetAssignItemIds.forEach((id) => assignToFolderSilent(id, folder.id));
+        saveAssignments();
+        if (selectMode) setSelectMode(false); else renderActive();
+      } else {
+        renderActive();
+      }
     }
     closeFolderNameSheet();
   }
@@ -898,29 +1056,45 @@
     return btn;
   }
 
-  function openMoveSheet(itemId) {
-    moveSheetItemId = itemId;
-    const item = mediaMap.get(itemId);
+  // `ids` is always an array — a single-item ••• menu passes a 1-element
+  // array, mass-select passes every currently-selected id. Assigning always
+  // sets every given item to the chosen folder in one shot; the "checked"
+  // mark on a folder row only lights up when the entire selection is
+  // already, unambiguously, in that one folder.
+  function openMoveSheet(ids) {
+    moveSheetItemIds = ids;
+    const items = ids.map((id) => mediaMap.get(id)).filter(Boolean);
     moveFolderList.innerHTML = '';
 
-    if (item && item.folderId) {
+    if (items.some((it) => it.folderId)) {
       moveFolderList.appendChild(buildMoveRow({
         icon: 'icon-x', label: 'Remove from Folder', danger: true,
-        onClick: () => { removeFromFolder(itemId); closeMoveSheet(); },
+        onClick: () => {
+          ids.forEach(removeFromFolderSilent);
+          saveAssignments();
+          closeMoveSheet();
+          if (selectMode) setSelectMode(false); else renderActive();
+        },
       }));
     }
 
     const newRow = buildMoveRow({
       icon: 'icon-folder-plus', label: 'New Folder…',
-      onClick: () => { closeMoveSheet(); openFolderNameSheet('create', null, itemId); },
+      onClick: () => { closeMoveSheet(); openFolderNameSheet('create', null, ids); },
     });
     newRow.classList.add('new-row');
     moveFolderList.appendChild(newRow);
 
     folders.slice().sort((a, b) => a.name.localeCompare(b.name)).forEach((folder) => {
       moveFolderList.appendChild(buildMoveRow({
-        icon: 'icon-folders', label: folder.name, checked: !!item && item.folderId === folder.id,
-        onClick: () => { assignToFolder(itemId, folder.id); closeMoveSheet(); },
+        icon: 'icon-folders', label: folder.name,
+        checked: items.length > 0 && items.every((it) => it.folderId === folder.id),
+        onClick: () => {
+          ids.forEach((id) => assignToFolderSilent(id, folder.id));
+          saveAssignments();
+          closeMoveSheet();
+          if (selectMode) setSelectMode(false); else renderActive();
+        },
       }));
     });
 
@@ -931,7 +1105,7 @@
   function closeMoveSheet() {
     moveSheet.hidden = true;
     moveSheetBackdrop.hidden = true;
-    moveSheetItemId = null;
+    moveSheetItemIds = [];
   }
 
   moveSheetBackdrop.addEventListener('click', closeMoveSheet);
@@ -944,7 +1118,7 @@
     let startX = 0, startY = 0, tracking = false, locked = null;
 
     content.addEventListener('touchstart', (e) => {
-      if (e.touches.length !== 1 || currentFolder !== null) return;
+      if (e.touches.length !== 1 || currentFolder !== null || selectMode) return;
       startX = e.touches[0].clientX;
       startY = e.touches[0].clientY;
       tracking = true;
@@ -1293,7 +1467,7 @@
       closeContextMenu();
       if (!id) return;
       if (action === 'favorite') toggleFavorite(id);
-      else if (action === 'move') openMoveSheet(id);
+      else if (action === 'move') openMoveSheet([id]);
       else if (action === 'remove') removeItem(id);
       else if (action === 'info') openInfo(id);
     });
