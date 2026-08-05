@@ -4,12 +4,14 @@
   /* ==========================================================================
      State
      - mediaItems lives only in memory for this tab's page-session — nothing is
-       written to disk. Re-opening the app means re-adding your media, which is
-       exactly why folders "disappear" until their media is added back.
-     - favorites persist in sessionStorage (per browser-tab session only; wiped
-       when the tab/browser session ends), keyed by a stable id derived from
-       folder path + name + size + last-modified, so favourites naturally
-       re-attach if you re-add the same files later in the same session.
+       written to disk. Re-opening the app means re-adding your photos/videos.
+     - Favourites, folders (the ones YOU create), and which item is in which
+       folder all persist in sessionStorage (survives a reload in the same
+       tab, wiped when the tab/session ends). A folder only ever appears in
+       the Folders tab while at least one of its items is currently loaded —
+       re-add the same file later in the same session and it snaps straight
+       back into the folder you put it in, because the id is stable
+       (name + size + last-modified).
      - mediaItems is kept sorted newest-first (by lastModified) at all times,
        so every derived view (All/Photos/Videos/Favourites/Folders) inherits
        that order for free.
@@ -18,14 +20,21 @@
   const mediaItems = [];
   const mediaMap = new Map();
   const favorites = new Set(loadFavorites());
+  let folders = loadFolders();          // [{ id, name }]
+  let assignments = loadAssignments();  // { itemId: folderId }
 
   let currentTab = 'all';
-  let currentFolder = null;
+  let currentFolder = null; // folder id, while drilled into a folder's detail view
 
   let lightboxList = [];
   let lightboxIndex = 0;
 
   let contextMenuTargetId = null;
+  let folderMenuTargetId = null;
+  let moveSheetItemId = null;
+  let folderSheetMode = null;         // 'create' | 'rename'
+  let folderSheetTargetFolderId = null;
+  let folderSheetAssignItemId = null;
 
   const IMAGE_EXT = /\.(jpe?g|png|gif|webp|heic|heif|bmp|tiff?|avif)$/i;
   const VIDEO_EXT = /\.(mp4|mov|m4v|webm|mkv|avi|3gp)$/i;
@@ -45,9 +54,8 @@
 
   const topbarTitle = $('#topbarTitle');
   const fileInput = $('#fileInput');
-  const folderInput = $('#folderInput');
   const addFilesBtn = $('#addFilesBtn');
-  const addFolderBtn = $('#addFolderBtn');
+  const newFolderBtn = $('#newFolderBtn');
 
   const tabBtns = $$('.tab-btn');
   const folderBackBtn = $('#folderBackBtn');
@@ -66,6 +74,8 @@
 
   const contextMenu = $('#contextMenu');
   const contextMenuBackdrop = $('#contextMenuBackdrop');
+  const folderContextMenu = $('#folderContextMenu');
+  const folderContextMenuBackdrop = $('#folderContextMenuBackdrop');
 
   const infoSheet = $('#infoSheet');
   const infoSheetBackdrop = $('#infoSheetBackdrop');
@@ -73,18 +83,36 @@
   const infoList = $('#infoList');
   const infoClose = $('#infoClose');
 
+  const folderNameSheet = $('#folderNameSheet');
+  const folderNameBackdrop = $('#folderNameBackdrop');
+  const folderNameTitle = $('#folderNameTitle');
+  const folderNameInput = $('#folderNameInput');
+  const folderNameCreate = $('#folderNameCreate');
+  const folderNameCancel = $('#folderNameCancel');
+
+  const moveSheet = $('#moveSheet');
+  const moveSheetBackdrop = $('#moveSheetBackdrop');
+  const moveFolderList = $('#moveFolderList');
+
   /* ------------------------------- Utilities -------------------------------- */
 
   function loadFavorites() {
-    try {
-      return JSON.parse(sessionStorage.getItem('pv_favorites') || '[]');
-    } catch {
-      return [];
-    }
+    try { return JSON.parse(sessionStorage.getItem('pv_favorites') || '[]'); } catch { return []; }
   }
-
   function saveFavorites() {
     sessionStorage.setItem('pv_favorites', JSON.stringify(Array.from(favorites)));
+  }
+  function loadFolders() {
+    try { return JSON.parse(sessionStorage.getItem('pv_folders') || '[]'); } catch { return []; }
+  }
+  function saveFolders() {
+    sessionStorage.setItem('pv_folders', JSON.stringify(folders));
+  }
+  function loadAssignments() {
+    try { return JSON.parse(sessionStorage.getItem('pv_assignments') || '{}'); } catch { return {}; }
+  }
+  function saveAssignments() {
+    sessionStorage.setItem('pv_assignments', JSON.stringify(assignments));
   }
 
   function detectType(file) {
@@ -93,20 +121,6 @@
     if (IMAGE_EXT.test(file.name)) return 'photo';
     if (VIDEO_EXT.test(file.name)) return 'video';
     return null;
-  }
-
-  function folderPathOf(file) {
-    const rel = file.webkitRelativePath || '';
-    if (!rel) return '';
-    const parts = rel.split('/');
-    parts.pop();   // filename
-    parts.shift(); // the picked root folder itself isn't a meaningful sub-folder
-    return parts.join('/');
-  }
-
-  function leafName(path) {
-    const parts = path.split('/');
-    return parts[parts.length - 1];
   }
 
   function formatDuration(seconds) {
@@ -133,8 +147,15 @@
   }
 
   function sortMediaItems() {
-    // Newest first, top-left to bottom-right in the grid.
+    // Newest first, top-left to bottom-right in the grid. __pos is cached so
+    // the thumbnail-loading priority queue can order cheaply (O(1) lookup)
+    // instead of re-scanning the array on every comparison.
     mediaItems.sort((a, b) => b.lastModified - a.lastModified);
+    reindexPositions();
+  }
+
+  function reindexPositions() {
+    mediaItems.forEach((item, i) => { item.__pos = i; });
   }
 
   /* ==========================================================================
@@ -149,12 +170,16 @@
      - createImageBitmap with resize hints does a scaled decode where the
        browser supports it, instead of decoding a full multi-megapixel photo
        just to shrink it afterwards.
-     - Video thumbnails are a single captured frame (a cheap <canvas> snapshot
-       taken once), never a live <video> element sitting in a grid tile.
-     - A small concurrency-limited queue + IntersectionObserver means
-       importing hundreds/thousands of files is just an in-memory array push
-       + sort — no decoding happens until something is actually scrolled into
-       view, and only a few thumbnails are generated at once.
+     - Video thumbnails are a single captured frame (a cheap <canvas>
+       snapshot), never a live <video> element sitting in a grid tile. Capture
+       is retried at a few different timestamps so essentially every playable
+       video ends up with a real frame, not a blank tile.
+     - A small priority queue (photos before videos, then top-to-bottom render
+       order) plus IntersectionObserver means importing hundreds/thousands of
+       files is just an in-memory array push + sort — no decoding happens
+       until something is actually scrolled into view, only a few thumbnails
+       generate at once, and what DOES load first matches what you'd expect
+       to see appear first.
      ========================================================================== */
 
   const THUMB_SIZE = 360; // output px (square) — small enough to be cheap, sharp enough for a ~2x DPR tile
@@ -163,6 +188,13 @@
 
   let activeThumbJobs = 0;
   const thumbQueue = [];
+
+  function thumbPriority(item) {
+    // Photos load before videos; within the same type, earlier in the
+    // current sort order (i.e. higher up / earlier in the grid) goes first.
+    const typeRank = item.type === 'photo' ? 0 : 1;
+    return typeRank * 1e9 + (item.__pos ?? 0);
+  }
 
   function scheduleThumb(item, onReady) {
     if (item.thumbUrl) { onReady(item.thumbUrl); return; }
@@ -178,6 +210,9 @@
 
   function pumpThumbQueue() {
     while (activeThumbJobs < MAX_CONCURRENT_THUMBS && thumbQueue.length) {
+      // Small queue (bounded by whatever's currently near-viewport) — cheap
+      // to keep sorted by priority right before each pop.
+      thumbQueue.sort((a, b) => thumbPriority(a) - thumbPriority(b));
       const item = thumbQueue.shift();
       activeThumbJobs++;
       generateThumb(item)
@@ -258,92 +293,125 @@
     });
   }
 
+  // Captures a real still frame for every playable video. Retries at a few
+  // different timestamps (10%, ~50% capped, then the very first frame)
+  // before giving up, since a single blind seek occasionally lands on a
+  // black/undecoded frame right at 0.
   function videoToCanvas(item) {
     return new Promise((resolve) => {
       const video = document.createElement('video');
       video.muted = true;
       video.playsInline = true;
-      video.preload = 'metadata';
+      video.preload = 'auto';
       const url = URL.createObjectURL(item.file);
       let settled = false;
+      let seekAttempts = 0;
 
       const finish = (val) => {
         if (settled) return;
         settled = true;
         clearTimeout(safety);
         URL.revokeObjectURL(url);
-        video.removeAttribute('src');
-        video.load();
+        try { video.removeAttribute('src'); video.load(); } catch { /* noop */ }
         resolve(val);
       };
 
-      const capture = () => {
+      const seekTimes = () => {
+        const d = video.duration;
+        if (!isFinite(d) || d <= 0) return [0];
+        return [Math.min(0.5, d * 0.1), Math.min(1.5, d * 0.5), 0];
+      };
+
+      function tryCapture() {
         const vw = video.videoWidth;
         const vh = video.videoHeight;
-        if (!vw || !vh) { finish(null); return; }
+        if (!vw || !vh) return false;
         if (isFinite(video.duration)) item.duration = video.duration;
         try {
           finish(cropToSquare(video, vw, vh, THUMB_SIZE));
+          return true;
         } catch {
-          finish(null);
+          return false;
         }
-      };
+      }
 
-      video.addEventListener('loadeddata', () => {
+      function attemptNextSeek() {
+        const times = seekTimes();
+        if (seekAttempts >= times.length) { finish(null); return; }
+        const t = times[seekAttempts++];
+        try { video.currentTime = t; } catch { attemptNextSeek(); }
+      }
+
+      video.addEventListener('loadedmetadata', () => {
         if (isFinite(video.duration)) item.duration = video.duration;
-        try {
-          video.currentTime = Math.min(0.5, (video.duration || 1) * 0.1);
-        } catch {
-          capture();
-        }
+        attemptNextSeek();
       }, { once: true });
-      video.addEventListener('seeked', capture, { once: true });
+
+      video.addEventListener('seeked', () => {
+        if (!tryCapture()) attemptNextSeek();
+      });
+
       video.addEventListener('error', () => finish(null));
 
-      const safety = setTimeout(() => finish(null), 6000);
+      const safety = setTimeout(() => { if (!tryCapture()) finish(null); }, 7000);
       video.src = url;
+      try { video.load(); } catch { /* noop */ }
     });
   }
 
   // A single shared observer drives lazy thumbnail loading for every grid,
   // folder-fan, and folder-detail image on the page.
-  const tileImgToItem = new WeakMap();
+  const tileImgToRecord = new WeakMap();
   const thumbObserver = new IntersectionObserver((entries) => {
     for (const entry of entries) {
       if (!entry.isIntersecting) continue;
       const img = entry.target;
       thumbObserver.unobserve(img);
-      const item = tileImgToItem.get(img);
-      tileImgToItem.delete(img);
-      if (!item) continue;
-      scheduleThumb(item, (url) => applyThumbToImg(img, item, url));
+      const rec = tileImgToRecord.get(img);
+      tileImgToRecord.delete(img);
+      if (!rec) continue;
+      scheduleThumb(rec.item, rec.handle);
     }
   }, { root: null, rootMargin: '600px 0px', threshold: 0.01 });
 
-  function applyThumbToImg(img, item, url) {
-    if (!img.isConnected) return;
-    if (url) {
-      img.src = url;
-      requestAnimationFrame(() => img.classList.add('loaded'));
-    }
-    if (item.type === 'video' && item.duration != null) {
-      const badge = img.parentElement && img.parentElement.querySelector('.dur');
-      if (badge) badge.textContent = formatDuration(item.duration);
-    }
+  function makeFallbackEl(item) {
+    const div = document.createElement('div');
+    div.className = 'thumb-fallback';
+    const iconId = item.type === 'video' ? '#icon-videos' : '#icon-photos';
+    div.innerHTML = `<svg class="icon"><use href="${iconId}"/></svg>`;
+    return div;
   }
 
   // Attach a lazily-loaded thumbnail <img> to a tile-ish container.
-  function makeThumbImg(item, alt) {
+  // `opts.onReady(url)` fires once the thumbnail resolves (url may be null
+  // on the rare hard failure), letting the caller update anything else that
+  // depends on it (e.g. a video duration badge) without fragile DOM lookups.
+  function makeThumbImg(item, opts = {}) {
     const img = document.createElement('img');
     img.className = 'tile-thumb';
     img.loading = 'lazy';
     img.decoding = 'async';
-    img.alt = alt || item.name;
+    img.alt = opts.alt || item.name;
+
+    const handle = (url) => {
+      if (img.isConnected) {
+        if (url) {
+          img.src = url;
+          requestAnimationFrame(() => img.classList.add('loaded'));
+        } else {
+          img.replaceWith(makeFallbackEl(item));
+        }
+      }
+      if (opts.onReady) opts.onReady(url);
+    };
+
     if (item.thumbUrl) {
       img.src = item.thumbUrl;
       img.classList.add('loaded');
+    } else if (item.thumbFailed) {
+      queueMicrotask(() => handle(null));
     } else {
-      tileImgToItem.set(img, item);
+      tileImgToRecord.set(img, { item, handle });
       thumbObserver.observe(img);
     }
     return img;
@@ -352,18 +420,13 @@
   /* ------------------------------- Adding media ------------------------------- */
 
   addFilesBtn.addEventListener('click', () => fileInput.click());
-  addFolderBtn.addEventListener('click', () => folderInput.click());
 
   fileInput.addEventListener('change', (e) => {
-    processFiles(e.target.files, false);
+    processFiles(e.target.files);
     fileInput.value = '';
   });
-  folderInput.addEventListener('change', (e) => {
-    processFiles(e.target.files, true);
-    folderInput.value = '';
-  });
 
-  function processFiles(fileList, fromFolder) {
+  function processFiles(fileList) {
     // Pure in-memory bookkeeping only — no decoding happens here, which is
     // why adding even a large batch of files stays fast. Thumbnails are
     // generated lazily, on demand, as tiles actually scroll into view.
@@ -371,17 +434,18 @@
     for (const file of Array.from(fileList)) {
       const type = detectType(file);
       if (!type) continue;
-      const folderPath = fromFolder ? folderPathOf(file) : '';
-      const id = `${folderPath}|${file.name}|${file.size}|${file.lastModified}`;
+      const id = `${file.name}|${file.size}|${file.lastModified}`;
       if (mediaMap.has(id)) continue;
       const url = URL.createObjectURL(file);
       const item = {
-        id, url, file, name: file.name, size: file.size, folderPath, type,
+        id, url, file, name: file.name, size: file.size, type,
         lastModified: file.lastModified || Date.now(),
+        folderId: assignments[id] || null, // snap back into a remembered folder automatically
         duration: null,
         thumbUrl: null,
         thumbFailed: false,
         thumbWaiters: null,
+        __pos: 0,
       };
       mediaItems.push(item);
       mediaMap.set(id, item);
@@ -402,6 +466,7 @@
     saveFavorites();
     URL.revokeObjectURL(item.url);
     if (item.thumbUrl) URL.revokeObjectURL(item.thumbUrl);
+    reindexPositions();
     renderActive();
   }
 
@@ -418,17 +483,27 @@
     $$('.view').forEach((v) => v.classList.remove('active'));
     $(`#view-${tab}`).classList.add('active');
     topbarTitle.textContent = TAB_TITLES[tab];
+    updateTopbarActions();
     renderActive();
+  }
+
+  function updateTopbarActions() {
+    // "New Folder" only makes sense while looking at the Folders grid itself
+    // (not drilled into one specific folder, and not on a media tab).
+    newFolderBtn.classList.toggle('hidden-btn', !(currentTab === 'folders' && currentFolder === null));
   }
 
   folderBackBtn.addEventListener('click', () => setActiveTab('folders'));
 
-  function openFolder(path) {
-    currentFolder = path;
+  function openFolder(folderId) {
+    currentFolder = folderId;
     $$('.view').forEach((v) => v.classList.remove('active'));
     $('#view-folder-detail').classList.add('active');
-    folderDetailTitle.textContent = leafName(path);
-    topbarTitle.textContent = leafName(path);
+    const folder = folders.find((f) => f.id === folderId);
+    const name = folder ? folder.name : 'Folder';
+    folderDetailTitle.textContent = name;
+    topbarTitle.textContent = name;
+    updateTopbarActions();
     renderFolderDetail();
   }
 
@@ -504,7 +579,7 @@
   }
 
   function renderFolderDetail() {
-    const items = currentFolder === null ? [] : mediaItems.filter((i) => i.folderPath === currentFolder);
+    const items = currentFolder === null ? [] : mediaItems.filter((i) => i.folderId === currentFolder);
     const section = $('#view-folder-detail');
     const gridEl = $('.tile-grid', section);
     const emptyEl = $('.empty-state', section);
@@ -513,10 +588,8 @@
       gridEl.innerHTML = '';
       gridEl.hidden = true;
       emptyEl.hidden = false;
-      emptyEl.innerHTML = `
-        <svg class="icon"><use href="#icon-folders"/></svg>
-        <h3>This folder is empty</h3>
-        <p>Once media is added back to this folder it will show up here again.</p>`;
+      emptyEl.innerHTML = emptyStateHTML('folder-empty');
+      bindEmptyStateCTA(emptyEl);
       return;
     }
 
@@ -530,7 +603,14 @@
     tile.className = 'tile' + (favorites.has(item.id) ? ' is-favorite' : '');
     tile.dataset.id = item.id;
 
-    tile.appendChild(makeThumbImg(item));
+    tile.appendChild(makeThumbImg(item, {
+      onReady: () => {
+        if (item.type === 'video' && item.duration != null) {
+          const badge = tile.querySelector('.dur');
+          if (badge) badge.textContent = formatDuration(item.duration);
+        }
+      },
+    }));
 
     if (item.type === 'video') {
       const badge = document.createElement('div');
@@ -579,8 +659,8 @@
         return `
           <svg class="icon"><use href="#icon-all"/></svg>
           <h3>No media yet</h3>
-          <p>Add photos, videos, or a whole folder from this device to get started.</p>
-          <button class="btn-primary empty-cta" data-action="add-folder">Add a Folder</button>`;
+          <p>Add photos and videos from this device to get started.</p>
+          <button class="btn-primary empty-cta" data-action="add-media">Add Photos &amp; Videos</button>`;
       case 'photos':
         return `
           <svg class="icon"><use href="#icon-photos"/></svg>
@@ -600,8 +680,13 @@
         return `
           <svg class="icon"><use href="#icon-folders"/></svg>
           <h3>No folders yet</h3>
-          <p>Add a folder from this device — folders only show up while their media is present.</p>
-          <button class="btn-primary empty-cta" data-action="add-folder">Add a Folder</button>`;
+          <p>Create a folder, then use a photo or video's ••• menu to move it in. Folders only show up while their media is present.</p>
+          <button class="btn-primary empty-cta" data-action="new-folder">New Folder</button>`;
+      case 'folder-empty':
+        return `
+          <svg class="icon"><use href="#icon-folders"/></svg>
+          <h3>This folder is empty</h3>
+          <p>Once you move something into this folder — or re-add media that was already in it — it'll show up here again.</p>`;
       default:
         return '';
     }
@@ -611,23 +696,76 @@
     const cta = $('.empty-cta', emptyEl);
     if (!cta) return;
     cta.addEventListener('click', () => {
-      if (cta.dataset.action === 'add-folder') folderInput.click();
+      if (cta.dataset.action === 'new-folder') openFolderNameSheet('create', null, null);
       else fileInput.click();
     });
   }
 
   /* --------------------------------- Folders ----------------------------------- */
+  // Folders are entirely app-managed: you create them and move photos/videos
+  // into them yourself (per-item ••• menu → "Move to Folder"). Nothing about
+  // this is read from disk — a folder tile only ever renders while at least
+  // one currently-loaded item is assigned to it.
 
   function getFolderMap() {
     // mediaItems is already newest-first, so every folder's item list — and
     // therefore its fan-out sample and its detail view — inherits that order.
-    const map = new Map();
+    const map = new Map(); // folderId -> items[]
     for (const item of mediaItems) {
-      if (!item.folderPath) continue;
-      if (!map.has(item.folderPath)) map.set(item.folderPath, []);
-      map.get(item.folderPath).push(item);
+      if (!item.folderId) continue;
+      if (!map.has(item.folderId)) map.set(item.folderId, []);
+      map.get(item.folderId).push(item);
     }
     return map;
+  }
+
+  function createFolder(name) {
+    const trimmed = (name || '').trim();
+    if (!trimmed) return null;
+    const folder = { id: `f_${Date.now().toString(36)}${Math.random().toString(36).slice(2, 7)}`, name: trimmed };
+    folders.push(folder);
+    saveFolders();
+    return folder;
+  }
+
+  function renameFolder(id, name) {
+    const trimmed = (name || '').trim();
+    if (!trimmed) return;
+    const folder = folders.find((f) => f.id === id);
+    if (!folder) return;
+    folder.name = trimmed;
+    saveFolders();
+    if (currentFolder === id) { folderDetailTitle.textContent = trimmed; topbarTitle.textContent = trimmed; }
+    renderActive();
+  }
+
+  function deleteFolder(id) {
+    folders = folders.filter((f) => f.id !== id);
+    saveFolders();
+    let changed = false;
+    for (const key of Object.keys(assignments)) {
+      if (assignments[key] === id) { delete assignments[key]; changed = true; }
+    }
+    if (changed) saveAssignments();
+    mediaItems.forEach((item) => { if (item.folderId === id) item.folderId = null; });
+    if (currentFolder === id) setActiveTab('folders');
+    else renderActive();
+  }
+
+  function assignToFolder(itemId, folderId) {
+    assignments[itemId] = folderId;
+    saveAssignments();
+    const item = mediaMap.get(itemId);
+    if (item) item.folderId = folderId;
+    renderActive();
+  }
+
+  function removeFromFolder(itemId) {
+    delete assignments[itemId];
+    saveAssignments();
+    const item = mediaMap.get(itemId);
+    if (item) item.folderId = null;
+    renderActive();
   }
 
   function renderFolders() {
@@ -635,9 +773,11 @@
     const gridEl = $('.folder-grid', section);
     const emptyEl = $('.empty-state', section);
     const folderMap = getFolderMap();
-    const folderPaths = Array.from(folderMap.keys()).sort((a, b) => a.localeCompare(b));
+    const visibleFolders = folders.filter((f) => folderMap.has(f.id))
+      .slice()
+      .sort((a, b) => a.name.localeCompare(b.name));
 
-    if (!folderPaths.length) {
+    if (!visibleFolders.length) {
       gridEl.innerHTML = '';
       gridEl.hidden = true;
       emptyEl.hidden = false;
@@ -648,10 +788,10 @@
 
     gridEl.hidden = false;
     emptyEl.hidden = true;
-    fillGridProgressively(gridEl, folderPaths, (path) => buildFolderCard(path, folderMap.get(path)));
+    fillGridProgressively(gridEl, visibleFolders, (folder) => buildFolderCard(folder, folderMap.get(folder.id)));
   }
 
-  function buildFolderCard(path, items) {
+  function buildFolderCard(folder, items) {
     const card = document.createElement('div');
     card.className = 'folder-card';
 
@@ -673,7 +813,7 @@
 
     const name = document.createElement('div');
     name.className = 'folder-name';
-    name.textContent = leafName(path);
+    name.textContent = folder.name;
     card.appendChild(name);
 
     const count = document.createElement('div');
@@ -681,113 +821,120 @@
     count.textContent = `${items.length} item${items.length === 1 ? '' : 's'}`;
     card.appendChild(count);
 
-    card.addEventListener('click', () => openFolder(path));
+    const menuBtn = document.createElement('button');
+    menuBtn.className = 'folder-menu-btn';
+    menuBtn.setAttribute('aria-label', 'Folder options');
+    menuBtn.innerHTML = '<svg class="icon"><use href="#icon-dots"/></svg>';
+    menuBtn.addEventListener('click', (e) => {
+      e.stopPropagation();
+      openFolderContextMenu(folder, menuBtn);
+    });
+    card.appendChild(menuBtn);
+
+    card.addEventListener('click', () => openFolder(folder.id));
     return card;
   }
 
-  /* -------------------------------- Lightbox ------------------------------------ */
-  // The lightbox always uses the full-quality original (item.url) — only the
-  // small grid/folder previews are downscaled.
+  /* ---------------------------- New Folder / Rename sheet ---------------------------- */
 
-  function openLightbox(list, index) {
-    lightboxList = list;
-    lightboxIndex = index;
-    lightboxEl.hidden = false;
-    document.body.style.overflow = 'hidden';
-    renderLightbox();
-  }
-
-  function closeLightbox() {
-    lightboxEl.hidden = true;
-    lightboxMedia.innerHTML = '';
-    document.body.style.overflow = '';
-  }
-
-  function renderLightbox() {
-    const item = lightboxList[lightboxIndex];
-    if (!item) { closeLightbox(); return; }
-
-    lightboxMedia.innerHTML = '';
-    let el;
-    if (item.type === 'photo') {
-      el = document.createElement('img');
-      el.src = item.url;
-      el.alt = item.name;
+  function openFolderNameSheet(mode, folderId, assignItemId) {
+    folderSheetMode = mode;
+    folderSheetTargetFolderId = folderId;
+    folderSheetAssignItemId = assignItemId || null;
+    if (mode === 'rename') {
+      const f = folders.find((x) => x.id === folderId);
+      folderNameTitle.textContent = 'Rename Folder';
+      folderNameInput.value = f ? f.name : '';
+      folderNameCreate.textContent = 'Save';
     } else {
-      el = document.createElement('video');
-      el.src = item.url;
-      el.controls = true;
-      el.autoplay = true;
-      el.playsInline = true;
+      folderNameTitle.textContent = 'New Folder';
+      folderNameInput.value = '';
+      folderNameCreate.textContent = 'Create';
     }
-    lightboxMedia.appendChild(el);
-
-    lightboxCounter.textContent = `${lightboxIndex + 1} / ${lightboxList.length}`;
-    lightboxName.textContent = item.name;
-    lightboxMeta.textContent = [item.folderPath || null, formatBytes(item.size), formatDate(item.lastModified)]
-      .filter(Boolean).join(' · ');
-
-    lightboxPrev.disabled = lightboxIndex <= 0;
-    lightboxNext.disabled = lightboxIndex >= lightboxList.length - 1;
-
-    updateLightboxFavState();
+    folderNameSheet.hidden = false;
+    folderNameBackdrop.hidden = false;
+    requestAnimationFrame(() => folderNameInput.focus());
   }
 
-  function updateLightboxFavState() {
-    const item = lightboxList[lightboxIndex];
-    if (!item) return;
-    lightboxFav.classList.toggle('is-favorite', favorites.has(item.id));
+  function closeFolderNameSheet() {
+    folderNameSheet.hidden = true;
+    folderNameBackdrop.hidden = true;
+    folderSheetMode = null;
+    folderSheetTargetFolderId = null;
+    folderSheetAssignItemId = null;
   }
 
-  function lightboxStep(delta) {
-    const next = lightboxIndex + delta;
-    if (next < 0 || next >= lightboxList.length) return;
-    lightboxIndex = next;
-    renderLightbox();
+  function submitFolderNameSheet() {
+    const name = folderNameInput.value.trim();
+    if (!name) { folderNameInput.focus(); return; }
+    if (folderSheetMode === 'rename') {
+      renameFolder(folderSheetTargetFolderId, name);
+    } else {
+      const folder = createFolder(name);
+      if (folder && folderSheetAssignItemId) assignToFolder(folderSheetAssignItemId, folder.id);
+      else renderActive();
+    }
+    closeFolderNameSheet();
   }
 
-  lightboxClose.addEventListener('click', closeLightbox);
-  lightboxPrev.addEventListener('click', () => lightboxStep(-1));
-  lightboxNext.addEventListener('click', () => lightboxStep(1));
-  lightboxFav.addEventListener('click', () => {
-    const item = lightboxList[lightboxIndex];
-    if (item) toggleFavorite(item.id);
+  newFolderBtn.addEventListener('click', () => openFolderNameSheet('create', null, null));
+  folderNameCreate.addEventListener('click', submitFolderNameSheet);
+  folderNameCancel.addEventListener('click', closeFolderNameSheet);
+  folderNameBackdrop.addEventListener('click', closeFolderNameSheet);
+  folderNameInput.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter') submitFolderNameSheet();
+    else if (e.key === 'Escape') closeFolderNameSheet();
   });
 
-  document.addEventListener('keydown', (e) => {
-    if (lightboxEl.hidden) return;
-    if (e.key === 'Escape') closeLightbox();
-    else if (e.key === 'ArrowLeft') lightboxStep(-1);
-    else if (e.key === 'ArrowRight') lightboxStep(1);
-  });
+  /* ------------------------------- Move to Folder sheet -------------------------------- */
 
-  // Swipe left/right through the lightbox
-  (function enableLightboxSwipe() {
-    let startX = 0, startY = 0, tracking = false, locked = null;
-    lightboxStage.addEventListener('touchstart', (e) => {
-      if (e.touches.length !== 1) return;
-      startX = e.touches[0].clientX;
-      startY = e.touches[0].clientY;
-      tracking = true;
-      locked = null;
-    }, { passive: true });
+  function buildMoveRow({ icon, label, danger, checked, onClick }) {
+    const btn = document.createElement('button');
+    btn.className = 'move-row' + (danger ? ' danger' : '');
+    btn.innerHTML = `<svg class="icon"><use href="#${icon}"/></svg><span></span>` +
+      (checked ? '<svg class="icon check"><use href="#icon-check"/></svg>' : '');
+    btn.querySelector('span').textContent = label;
+    btn.addEventListener('click', onClick);
+    return btn;
+  }
 
-    lightboxStage.addEventListener('touchmove', (e) => {
-      if (!tracking) return;
-      const dx = e.touches[0].clientX - startX;
-      const dy = e.touches[0].clientY - startY;
-      if (locked === null) locked = Math.abs(dx) > Math.abs(dy) ? 'x' : 'y';
-    }, { passive: true });
+  function openMoveSheet(itemId) {
+    moveSheetItemId = itemId;
+    const item = mediaMap.get(itemId);
+    moveFolderList.innerHTML = '';
 
-    lightboxStage.addEventListener('touchend', (e) => {
-      if (!tracking) return;
-      tracking = false;
-      const dx = e.changedTouches[0].clientX - startX;
-      if (locked === 'x' && Math.abs(dx) > 50) {
-        if (dx < 0) lightboxStep(1); else lightboxStep(-1);
-      }
+    if (item && item.folderId) {
+      moveFolderList.appendChild(buildMoveRow({
+        icon: 'icon-x', label: 'Remove from Folder', danger: true,
+        onClick: () => { removeFromFolder(itemId); closeMoveSheet(); },
+      }));
+    }
+
+    const newRow = buildMoveRow({
+      icon: 'icon-folder-plus', label: 'New Folder…',
+      onClick: () => { closeMoveSheet(); openFolderNameSheet('create', null, itemId); },
     });
-  })();
+    newRow.classList.add('new-row');
+    moveFolderList.appendChild(newRow);
+
+    folders.slice().sort((a, b) => a.name.localeCompare(b.name)).forEach((folder) => {
+      moveFolderList.appendChild(buildMoveRow({
+        icon: 'icon-folders', label: folder.name, checked: !!item && item.folderId === folder.id,
+        onClick: () => { assignToFolder(itemId, folder.id); closeMoveSheet(); },
+      }));
+    });
+
+    moveSheet.hidden = false;
+    moveSheetBackdrop.hidden = false;
+  }
+
+  function closeMoveSheet() {
+    moveSheet.hidden = true;
+    moveSheetBackdrop.hidden = true;
+    moveSheetItemId = null;
+  }
+
+  moveSheetBackdrop.addEventListener('click', closeMoveSheet);
 
   /* ------------------------------ Swipe between tabs -------------------------- */
 
@@ -825,7 +972,299 @@
     });
   })();
 
+  /* -------------------------------- Lightbox ------------------------------------ */
+  // The lightbox always uses the full-quality original (item.url) — only the
+  // small grid/folder previews are downscaled. Photos support Apple-Photos-
+  // style pinch-to-zoom/pan; see the zoom controller further down.
+
+  function openLightbox(list, index) {
+    lightboxList = list;
+    lightboxIndex = index;
+    lightboxEl.hidden = false;
+    document.body.style.overflow = 'hidden';
+    renderLightbox();
+  }
+
+  function closeLightbox() {
+    lightboxEl.hidden = true;
+    lightboxMedia.innerHTML = '';
+    zoomEl = null;
+    document.body.style.overflow = '';
+  }
+
+  function renderLightbox() {
+    const item = lightboxList[lightboxIndex];
+    if (!item) { closeLightbox(); return; }
+
+    lightboxMedia.innerHTML = '';
+    let el;
+    if (item.type === 'photo') {
+      el = document.createElement('img');
+      el.src = item.url;
+      el.alt = item.name;
+      el.className = 'zoomable';
+      zoomEl = el;
+    } else {
+      el = document.createElement('video');
+      el.src = item.url;
+      el.controls = true;
+      el.autoplay = true;
+      el.playsInline = true;
+      zoomEl = null;
+    }
+    lightboxMedia.appendChild(el);
+    resetZoomState(false);
+
+    lightboxCounter.textContent = `${lightboxIndex + 1} / ${lightboxList.length}`;
+    lightboxName.textContent = item.name;
+    lightboxMeta.textContent = [formatBytes(item.size), formatDate(item.lastModified)].filter(Boolean).join(' · ');
+
+    lightboxPrev.disabled = lightboxIndex <= 0;
+    lightboxNext.disabled = lightboxIndex >= lightboxList.length - 1;
+
+    updateLightboxFavState();
+  }
+
+  function updateLightboxFavState() {
+    const item = lightboxList[lightboxIndex];
+    if (!item) return;
+    lightboxFav.classList.toggle('is-favorite', favorites.has(item.id));
+  }
+
+  function lightboxStep(delta) {
+    const next = lightboxIndex + delta;
+    if (next < 0 || next >= lightboxList.length) return;
+    lightboxIndex = next;
+    renderLightbox();
+  }
+
+  lightboxClose.addEventListener('click', closeLightbox);
+  lightboxPrev.addEventListener('click', () => lightboxStep(-1));
+  lightboxNext.addEventListener('click', () => lightboxStep(1));
+  lightboxFav.addEventListener('click', () => {
+    const item = lightboxList[lightboxIndex];
+    if (item) toggleFavorite(item.id);
+  });
+
+  document.addEventListener('keydown', (e) => {
+    if (lightboxEl.hidden) return;
+    if (e.key === 'Escape') closeLightbox();
+    else if (e.key === 'ArrowLeft') lightboxStep(-1);
+    else if (e.key === 'ArrowRight') lightboxStep(1);
+  });
+
+  /* ------------------------- Pinch-zoom / pan (photos only) ------------------------- */
+  // A unified pointer-event controller: single-finger drag at 1x navigates
+  // between photos (existing swipe behaviour, and still applies to videos);
+  // two fingers (or one finger once already zoomed in) pinch/pan the current
+  // photo instead, anchored exactly between the fingers, with the chrome
+  // fading out while zoomed and a spring-back if you pinch past the zoom
+  // limit or pan past the image's edge.
+
+  const MIN_SCALE = 1;
+  const MAX_SCALE = 4;
+
+  let zoomEl = null;
+  let zoom = { scale: 1, x: 0, y: 0 };
+  const activePointers = new Map(); // pointerId -> {x, y}
+  let gesture = null; // null | 'swipe' | 'pan' | 'pinch'
+  let swipeStart = { x: 0, y: 0 };
+  let panStartPointer = { x: 0, y: 0 };
+  let panStartOffset = { x: 0, y: 0 };
+  let pinchStartDist = 1;
+  let pinchStartScale = 1;
+  let pinchStartMid = { x: 0, y: 0 };
+  let pinchStartOffset = { x: 0, y: 0 };
+  let lastTap = { time: 0, x: 0, y: 0 };
+
+  function dist(a, b) { return Math.hypot(a.x - b.x, a.y - b.y); }
+  function mid(a, b) { return { x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 }; }
+  function rubberBand(v, min, max, dampen) {
+    if (v < min) return min - (min - v) * dampen;
+    if (v > max) return max + (v - max) * dampen;
+    return v;
+  }
+
+  function panBounds(scale) {
+    const stageRect = lightboxStage.getBoundingClientRect();
+    const w = zoomEl.offsetWidth * scale;
+    const h = zoomEl.offsetHeight * scale;
+    return {
+      maxX: Math.max(0, (w - stageRect.width) / 2),
+      maxY: Math.max(0, (h - stageRect.height) / 2),
+    };
+  }
+
+  function clampPan(scale, x, y) {
+    const { maxX, maxY } = panBounds(scale);
+    return { x: Math.min(maxX, Math.max(-maxX, x)), y: Math.min(maxY, Math.max(-maxY, y)) };
+  }
+
+  function clampPanRubber(scale, x, y) {
+    const { maxX, maxY } = panBounds(scale);
+    return { x: rubberBand(x, -maxX, maxX, 0.45), y: rubberBand(y, -maxY, maxY, 0.45) };
+  }
+
+  function applyZoomTransform(animate) {
+    if (!zoomEl) return;
+    zoomEl.style.transition = animate ? 'transform 0.32s cubic-bezier(0.22, 1, 0.36, 1)' : 'none';
+    zoomEl.style.transform = `translate3d(${zoom.x}px, ${zoom.y}px, 0) scale(${zoom.scale})`;
+    zoomEl.classList.toggle('is-zoomed', zoom.scale > 1.02);
+  }
+
+  function updateChromeForZoom() {
+    lightboxEl.classList.toggle('zoomed', zoom.scale > 1.02);
+  }
+
+  function resetZoomState(animate) {
+    zoom = { scale: 1, x: 0, y: 0 };
+    gesture = null;
+    activePointers.clear();
+    applyZoomTransform(animate);
+    updateChromeForZoom();
+  }
+
+  function settleZoom() {
+    const scale = Math.min(MAX_SCALE, Math.max(MIN_SCALE, zoom.scale));
+    let { x, y } = clampPan(scale, zoom.x, zoom.y);
+    if (scale <= MIN_SCALE + 0.001) { x = 0; y = 0; }
+    zoom = { scale, x, y };
+    applyZoomTransform(true);
+    updateChromeForZoom();
+  }
+
+  function handleDoubleTap(clientX, clientY) {
+    if (zoom.scale > 1.01) {
+      zoom = { scale: 1, x: 0, y: 0 };
+    } else {
+      const target = 2.75;
+      const stageRect = lightboxStage.getBoundingClientRect();
+      const cx = clientX - (stageRect.left + stageRect.width / 2);
+      const cy = clientY - (stageRect.top + stageRect.height / 2);
+      const clamped = clampPan(target, -cx * (target - 1), -cy * (target - 1));
+      zoom = { scale: target, x: clamped.x, y: clamped.y };
+    }
+    applyZoomTransform(true);
+    updateChromeForZoom();
+  }
+
+  function onPointerDown(e) {
+    if (e.target.closest('.lightbox-nav')) return;
+    try { lightboxStage.setPointerCapture(e.pointerId); } catch { /* noop */ }
+    activePointers.set(e.pointerId, { x: e.clientX, y: e.clientY });
+
+    if (activePointers.size === 1) {
+      const now = Date.now();
+      const isDoubleTap = zoomEl && now - lastTap.time < 300 &&
+        Math.abs(e.clientX - lastTap.x) < 30 && Math.abs(e.clientY - lastTap.y) < 30;
+      if (isDoubleTap) {
+        handleDoubleTap(e.clientX, e.clientY);
+        lastTap = { time: 0, x: 0, y: 0 };
+        activePointers.clear();
+        gesture = null;
+        return;
+      }
+      lastTap = { time: now, x: e.clientX, y: e.clientY };
+
+      if (zoomEl && zoom.scale > 1.001) {
+        gesture = 'pan';
+        panStartPointer = { x: e.clientX, y: e.clientY };
+        panStartOffset = { x: zoom.x, y: zoom.y };
+      } else {
+        gesture = 'swipe';
+        swipeStart = { x: e.clientX, y: e.clientY };
+      }
+    } else if (activePointers.size === 2 && zoomEl) {
+      const pts = Array.from(activePointers.values());
+      gesture = 'pinch';
+      pinchStartDist = Math.max(1, dist(pts[0], pts[1]));
+      pinchStartScale = zoom.scale;
+      pinchStartMid = mid(pts[0], pts[1]);
+      pinchStartOffset = { x: zoom.x, y: zoom.y };
+    }
+  }
+
+  function onPointerMove(e) {
+    if (!activePointers.has(e.pointerId)) return;
+    activePointers.set(e.pointerId, { x: e.clientX, y: e.clientY });
+
+    if (gesture === 'pinch' && zoomEl && activePointers.size >= 2) {
+      const pts = Array.from(activePointers.values()).slice(0, 2);
+      const newDist = dist(pts[0], pts[1]);
+      const newMid = mid(pts[0], pts[1]);
+      const rawScale = pinchStartScale * (newDist / pinchStartDist);
+      const scale = rubberBand(rawScale, MIN_SCALE, MAX_SCALE, 0.55);
+      const stageRect = lightboxStage.getBoundingClientRect();
+      const cx = pinchStartMid.x - (stageRect.left + stageRect.width / 2);
+      const cy = pinchStartMid.y - (stageRect.top + stageRect.height / 2);
+      const scaleRatio = scale / pinchStartScale;
+      const dxMid = newMid.x - pinchStartMid.x;
+      const dyMid = newMid.y - pinchStartMid.y;
+      zoom = {
+        scale,
+        x: cx - (cx - pinchStartOffset.x) * scaleRatio + dxMid,
+        y: cy - (cy - pinchStartOffset.y) * scaleRatio + dyMid,
+      };
+      applyZoomTransform(false);
+      updateChromeForZoom();
+    } else if (gesture === 'pan' && zoomEl) {
+      const dx = e.clientX - panStartPointer.x;
+      const dy = e.clientY - panStartPointer.y;
+      const clamped = clampPanRubber(zoom.scale, panStartOffset.x + dx, panStartOffset.y + dy);
+      zoom = { ...zoom, x: clamped.x, y: clamped.y };
+      applyZoomTransform(false);
+    }
+    // 'swipe' gesture: no live feedback needed, decision happens on release.
+  }
+
+  function onPointerUp(e) {
+    if (!activePointers.has(e.pointerId)) return;
+    activePointers.delete(e.pointerId);
+    try { lightboxStage.releasePointerCapture(e.pointerId); } catch { /* noop */ }
+
+    if (gesture === 'pinch') {
+      if (activePointers.size < 2) {
+        settleZoom();
+        if (activePointers.size === 1) {
+          gesture = 'pan';
+          const remaining = Array.from(activePointers.values())[0];
+          panStartPointer = remaining;
+          panStartOffset = { x: zoom.x, y: zoom.y };
+        } else {
+          gesture = null;
+        }
+      }
+    } else if (gesture === 'pan') {
+      if (activePointers.size === 0) { settleZoom(); gesture = null; }
+    } else if (gesture === 'swipe') {
+      if (activePointers.size === 0) {
+        const dx = e.clientX - swipeStart.x;
+        const dy = e.clientY - swipeStart.y;
+        if (Math.abs(dx) > 50 && Math.abs(dx) > Math.abs(dy)) {
+          if (dx < 0) lightboxStep(1); else lightboxStep(-1);
+        }
+        gesture = null;
+      }
+    }
+  }
+
+  lightboxStage.addEventListener('pointerdown', onPointerDown);
+  lightboxStage.addEventListener('pointermove', onPointerMove);
+  lightboxStage.addEventListener('pointerup', onPointerUp);
+  lightboxStage.addEventListener('pointercancel', onPointerUp);
+
   /* ------------------------------- Context menu -------------------------------- */
+
+  function positionFloatingMenu(menuEl, anchorEl) {
+    const rect = anchorEl.getBoundingClientRect();
+    const menuRect = menuEl.getBoundingClientRect();
+    let left = rect.right - menuRect.width;
+    let top = rect.bottom + 6;
+    left = Math.max(8, Math.min(left, window.innerWidth - menuRect.width - 8));
+    if (top + menuRect.height > window.innerHeight - 8) top = rect.top - menuRect.height - 6;
+    menuEl.style.left = `${left}px`;
+    menuEl.style.top = `${top}px`;
+  }
 
   function openContextMenu(id, anchorEl) {
     contextMenuTargetId = id;
@@ -836,15 +1275,7 @@
 
     contextMenu.hidden = false;
     contextMenuBackdrop.hidden = false;
-
-    const rect = anchorEl.getBoundingClientRect();
-    const menuRect = contextMenu.getBoundingClientRect();
-    let left = rect.right - menuRect.width;
-    let top = rect.bottom + 6;
-    left = Math.max(8, Math.min(left, window.innerWidth - menuRect.width - 8));
-    if (top + menuRect.height > window.innerHeight - 8) top = rect.top - menuRect.height - 6;
-    contextMenu.style.left = `${left}px`;
-    contextMenu.style.top = `${top}px`;
+    positionFloatingMenu(contextMenu, anchorEl);
   }
 
   function closeContextMenu() {
@@ -862,8 +1293,35 @@
       closeContextMenu();
       if (!id) return;
       if (action === 'favorite') toggleFavorite(id);
+      else if (action === 'move') openMoveSheet(id);
       else if (action === 'remove') removeItem(id);
       else if (action === 'info') openInfo(id);
+    });
+  });
+
+  function openFolderContextMenu(folder, anchorEl) {
+    folderMenuTargetId = folder.id;
+    folderContextMenu.hidden = false;
+    folderContextMenuBackdrop.hidden = false;
+    positionFloatingMenu(folderContextMenu, anchorEl);
+  }
+
+  function closeFolderContextMenu() {
+    folderContextMenu.hidden = true;
+    folderContextMenuBackdrop.hidden = true;
+    folderMenuTargetId = null;
+  }
+
+  folderContextMenuBackdrop.addEventListener('click', closeFolderContextMenu);
+
+  $$('#folderContextMenu button').forEach((btn) => {
+    btn.addEventListener('click', () => {
+      const id = folderMenuTargetId;
+      const action = btn.dataset.action;
+      closeFolderContextMenu();
+      if (!id) return;
+      if (action === 'rename') openFolderNameSheet('rename', id, null);
+      else if (action === 'delete') deleteFolder(id);
     });
   });
 
@@ -874,9 +1332,10 @@
     if (!item) return;
     infoName.textContent = item.name;
     infoList.innerHTML = '';
+    const folder = item.folderId ? folders.find((f) => f.id === item.folderId) : null;
     const rows = [
       ['Type', item.type === 'photo' ? 'Photo' : 'Video'],
-      ['Folder', item.folderPath || '—'],
+      ['Folder', folder ? folder.name : '—'],
       ['Size', formatBytes(item.size)],
       ['Modified', formatDate(item.lastModified)],
     ];

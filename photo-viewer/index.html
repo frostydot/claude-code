@@ -25,6 +25,8 @@
   <symbol id="icon-dots" viewBox="0 0 24 24"><circle cx="5" cy="12" r="1.6"/><circle cx="12" cy="12" r="1.6"/><circle cx="19" cy="12" r="1.6"/></symbol>
   <symbol id="icon-trash" viewBox="0 0 24 24"><path d="M4 7h16M9 7V5a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2M6 7l1 13a1.5 1.5 0 0 0 1.5 1.4h7A1.5 1.5 0 0 0 17 20l1-13"/></symbol>
   <symbol id="icon-info" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M12 11v5.5"/><circle cx="12" cy="7.7" r="1"/></symbol>
+  <symbol id="icon-check" viewBox="0 0 24 24"><path d="M5 12.5l4.5 4.5L19 7"/></symbol>
+  <symbol id="icon-pencil" viewBox="0 0 24 24"><path d="M4 20l1-4.2L15.8 5 19 8.2 8.2 19 4 20z"/><path d="M13.5 6.5l4 4"/></symbol>
 </svg>
 
 <div id="app">
@@ -32,17 +34,16 @@
   <header class="topbar">
     <h1 id="topbarTitle">Photos</h1>
     <div class="topbar-actions">
+      <button class="icon-btn" id="newFolderBtn" aria-label="New folder">
+        <svg class="icon"><use href="#icon-folder-plus"/></svg>
+      </button>
       <button class="icon-btn" id="addFilesBtn" aria-label="Add photos or videos">
         <svg class="icon"><use href="#icon-plus"/></svg>
-      </button>
-      <button class="icon-btn" id="addFolderBtn" aria-label="Add folder">
-        <svg class="icon"><use href="#icon-folder-plus"/></svg>
       </button>
     </div>
   </header>
 
   <input type="file" id="fileInput" accept="image/*,video/*" multiple hidden>
-  <input type="file" id="folderInput" webkitdirectory directory multiple hidden>
 
   <main id="content">
     <section class="view grid-view active" data-view="all" id="view-all">
@@ -130,13 +131,21 @@
     </div>
   </div>
 
-  <!-- Context menu -->
+  <!-- Per-item context menu -->
   <div class="context-menu" id="contextMenu" hidden>
     <button data-action="favorite"><svg class="icon"><use href="#icon-favorites"/></svg><span>Add to Favourites</span></button>
+    <button data-action="move"><svg class="icon"><use href="#icon-folders"/></svg><span>Move to Folder</span></button>
     <button data-action="info"><svg class="icon"><use href="#icon-info"/></svg><span>Info</span></button>
     <button data-action="remove" class="danger"><svg class="icon"><use href="#icon-trash"/></svg><span>Remove</span></button>
   </div>
   <div class="context-menu-backdrop" id="contextMenuBackdrop" hidden></div>
+
+  <!-- Per-folder context menu -->
+  <div class="context-menu" id="folderContextMenu" hidden>
+    <button data-action="rename"><svg class="icon"><use href="#icon-pencil"/></svg><span>Rename</span></button>
+    <button data-action="delete" class="danger"><svg class="icon"><use href="#icon-trash"/></svg><span>Delete Folder</span></button>
+  </div>
+  <div class="context-menu-backdrop" id="folderContextMenuBackdrop" hidden></div>
 
   <!-- Info panel -->
   <div class="info-sheet" id="infoSheet" hidden>
@@ -148,6 +157,30 @@
     </div>
   </div>
   <div class="info-sheet-backdrop" id="infoSheetBackdrop" hidden></div>
+
+  <!-- New Folder / Rename Folder sheet -->
+  <div class="info-sheet" id="folderNameSheet" hidden>
+    <div class="info-sheet-inner">
+      <div class="info-sheet-handle"></div>
+      <h3 id="folderNameTitle">New Folder</h3>
+      <input type="text" class="text-input" id="folderNameInput" placeholder="Folder name" maxlength="60" autocomplete="off">
+      <div class="sheet-actions">
+        <button class="btn-secondary" id="folderNameCancel">Cancel</button>
+        <button class="btn-primary" id="folderNameCreate">Create</button>
+      </div>
+    </div>
+  </div>
+  <div class="info-sheet-backdrop" id="folderNameBackdrop" hidden></div>
+
+  <!-- Move to Folder sheet -->
+  <div class="info-sheet" id="moveSheet" hidden>
+    <div class="info-sheet-inner">
+      <div class="info-sheet-handle"></div>
+      <h3>Move to Folder</h3>
+      <div class="move-folder-list" id="moveFolderList"></div>
+    </div>
+  </div>
+  <div class="info-sheet-backdrop" id="moveSheetBackdrop" hidden></div>
 
 </div>
 

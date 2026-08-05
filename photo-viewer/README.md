@@ -4,7 +4,9 @@ A single-page, no-build, no-backend photo/video viewer. Everything runs in
 the browser — nothing is ever uploaded anywhere.
 
 Open **`index.html`** directly, or serve the folder with any static file
-server, and it just works.
+server, and it just works. `photo-viewer-standalone.html` is the same app
+merged into a single self-contained file (no separate CSS/JS), for
+environments (like Koder) that run one HTML file.
 
 ## Features
 
@@ -15,31 +17,43 @@ server, and it just works.
   as your library goes, **sorted newest first** (top-left) **to oldest last**
   (bottom), by each file's last-modified date. Folders inherit the same
   order, so a folder's fanned-out preview always shows its 5 newest items.
-- **Folders** tab shows **2 across**: each folder is a card with up to five
-  of its photos/videos fanned out like a spread deck of cards, the folder
-  name, and an item count underneath. Tap a folder to browse it in the same
-  3-across grid, with a back button to return.
-- **Fully on-device**: use **＋** to add loose photos/videos, or the
-  **folder+** button to add a whole folder (including subfolders) via your
-  device's folder picker. Files are read straight from disk into the page
-  (via `URL.createObjectURL`) — nothing leaves the browser, and nothing is
+- **Folders are yours to organize.** Tap **＋** to add loose photos and
+  videos — there's no disk-folder import. Instead, use a photo/video's •••
+  menu → **Move to Folder** to file it into a folder you create right there
+  (or make a new one on the spot). The **Folders** tab shows **2 across**:
+  each folder is a card with up to five of its newest photos/videos fanned
+  out like a spread deck of cards, the folder name, and an item count
+  underneath. Tap a folder to browse it in the same 3-across grid, with a
+  back button to return; each folder card's ••• menu lets you rename or
+  delete it.
+- **Fully on-device.** Files are read straight from disk into the page (via
+  `URL.createObjectURL`) — nothing leaves the browser, and nothing is
   written to disk anywhere else.
-- **Favourites persist for the browser tab's session** (via
+- **Favourites and folders persist for the browser tab's session** (via
   `sessionStorage`) — they survive a page reload in the same tab, but clear
   once the tab/browser session ends.
-- **Folders only show while their media is present.** Nothing about the
-  library is written to disk, so if you close the app and come back, you
-  add your folder back in and only the folders that actually contain media
-  reappear — remove all of a folder's items and it disappears from the
-  Folders tab immediately.
-- **Lightbox viewer**: tap any tile to open a fullscreen view with swipe
-  left/right (touch), arrow-key navigation, a favourite toggle, and video
-  playback.
+- **A folder only shows while its media is present.** Nothing about the
+  library is written to disk, so when you close the app and come back, you
+  re-add your photos/videos — only the folders that currently have media
+  assigned to them show up. Re-add the exact same file later in the same
+  session (same name/size/date) and it snaps straight back into whichever
+  folder you'd put it in, since favourites and folder assignments are keyed
+  off that.
+- **Lightbox viewer**: tap any tile to open a fullscreen view.
+  - **Pinch-to-zoom and pan on photos**, modeled on Apple Photos — zoom is
+    anchored exactly between your fingers, tracks 1:1 with the gesture, the
+    header/footer/nav chrome fades out while zoomed, panning is bounds-
+    checked with a rubber-band give at the edges, and pinching past the
+    zoom limit stretches past it then springs back to the max on release.
+    Double-tap zooms in/out too.
+  - Swipe left/right (or arrow keys) to move between photos/videos — only
+    active at 1x zoom, so it never fights with panning a zoomed photo.
+  - Favourite toggle and native video playback.
 - **Swipe between tabs** on the main grid (left/right), in addition to the
   tab bar.
-- **Per-item menu** (••• button) for Add/Remove Favourite, Info (name,
-  folder, size, date), and Remove from the library. A heart button on every
-  tile is a one-tap favourite shortcut.
+- **Per-item menu** (••• button) for Add/Remove Favourite, Move to Folder,
+  Info (type, folder, size, date), and Remove from the library. A heart
+  button on every tile is a one-tap favourite shortcut.
 - Light/dark mode aware, responsive, touch-target sized for mobile.
 
 ## Performance
@@ -56,11 +70,16 @@ at import time.
   open something in the fullscreen lightbox.
 - **Thumbnails are generated lazily**, only for tiles that actually scroll
   into view (via `IntersectionObserver`), a few at a time (a small
-  concurrency-limited queue), so scrolling through a huge library stays
-  smooth instead of decoding everything up front.
-- **Video tiles never contain a live `<video>` element.** A single frame is
-  captured once into the same small cached thumbnail image used for photos —
-  real video decoding only happens when you open a video in the lightbox.
+  concurrency-limited queue) — and **prioritized**: photos load before
+  videos, and within each, top-to-bottom in the order they appear on screen,
+  so what you'd expect to see fill in first does.
+- **Video tiles never contain a live `<video>` element.** A single still
+  frame is captured once — retried at a few different timestamps so a real
+  frame is captured essentially every time, not just when the first blind
+  seek happens to land on one — into the same small cached thumbnail image
+  used for photos. Real video decoding only happens when you open a video in
+  the lightbox. On the rare total failure (corrupt/unsupported file) a
+  generic icon is shown instead of a permanently blank tile.
 - **Grids render in chunks** across idle frames rather than blocking the
   main thread building thousands of DOM nodes in one pass, so even a huge
   import doesn't freeze the UI while the grid fills in.
@@ -69,12 +88,8 @@ at import time.
 
 - This is a *viewer*, not a media library manager — it doesn't move, copy,
   or write files anywhere on your device. It only reads what you pick.
-- Folder selection (`webkitdirectory`) is supported in all Chromium- and
-  WebKit-based browsers (Chrome, Edge, Safari) and Firefox 50+. If a
-  browser doesn't support it, the "Add a Folder" button will simply behave
-  like picking individual files.
 - Because nothing is persisted to disk, a full page reload clears your
-  library (by design — see "Folders only show while their media is
-  present" above) except favourites, which live in `sessionStorage` for
-  that tab's session and re-attach automatically if you re-add the same
-  files.
+  library (by design — see "A folder only shows while its media is present"
+  above) except favourites and folder definitions/assignments, which live in
+  `sessionStorage` for that tab's session and re-attach automatically once
+  you re-add the same files.
