@@ -3,15 +3,22 @@
 
   /* ==========================================================================
      State
-     - mediaItems lives only in memory for this tab's page-session — nothing is
-       written to disk. Re-opening the app means re-adding your photos/videos.
+     - mediaItems (the actual photo/video File objects) lives only in memory —
+       nothing is or can be written to disk for these. No web page, in any
+       browser or embedded WebView, can silently re-read files off your
+       device without you explicitly picking them again — that's a browser
+       security boundary, not a limitation of this app. Re-opening the app
+       always means re-adding your photos/videos via "Add Photos & Videos".
      - Favourites, folders (the ones YOU create), and which item is in which
-       folder all persist in sessionStorage (survives a reload in the same
-       tab, wiped when the tab/session ends). A folder only ever appears in
-       the Folders tab while at least one of its items is currently loaded —
-       re-add the same file later in the same session and it snaps straight
-       back into the folder you put it in, because the id is stable
-       (name + size + last-modified).
+       folder are small JSON metadata, and DO persist automatically across
+       app restarts — no action needed from you — via a layered store (see
+       "Persistence" below): IndexedDB first, falling back to localStorage,
+       falling back to in-memory-only if neither is available in whatever
+       WebView is hosting the page. A folder only ever appears in the
+       Folders tab while at least one of its items is currently loaded —
+       re-add the same file later and it snaps straight back into the
+       folder you put it in, because the id is stable (name + size +
+       last-modified), regardless of which storage tier actually held it.
      - mediaItems is kept sorted newest-first (by lastModified) at all times,
        so every derived view (All/Photos/Videos/Favourites/Folders) inherits
        that order for free.
@@ -19,9 +26,13 @@
 
   const mediaItems = [];
   const mediaMap = new Map();
-  const favorites = new Set(loadFavorites());
-  let folders = loadFolders();          // [{ id, name }]
-  let assignments = loadAssignments();  // { itemId: folderId }
+  // Start empty and render immediately; hydrateFromStorage() (called at the
+  // bottom of this file) fills these in asynchronously once the layered
+  // store resolves. See "Persistence" below for why this has to be async,
+  // and why nothing needs to wait on it.
+  const favorites = new Set();
+  let folders = [];          // [{ id, name }]
+  let assignments = {};      // { itemId: folderId }
 
   let currentTab = 'all';
   let currentFolder = null; // folder id, while drilled into a folder's detail view
@@ -106,21 +117,105 @@
   const moveSheetBackdrop = $('#moveSheetBackdrop');
   const moveFolderList = $('#moveFolderList');
 
-  /* ------------------------------- Utilities -------------------------------- */
+  /* ==========================================================================
+     Persistence — IndexedDB, falling back to localStorage, falling back to
+     in-memory-only. Every layer is wrapped so a failure anywhere in the
+     chain degrades quietly instead of throwing.
 
-  // Some embedded WebViews (this shows up with file:// pages on iOS/Android
-  // in particular) throw a SecurityError on ANY sessionStorage access, not
-  // just quota errors. If a write throws uncaught, every function that calls
-  // it — toggleFavorite, createFolder, assignToFolder, etc. — aborts right
-  // there, so the rest of that action (updating the UI, closing a sheet)
-  // never runs. It looks exactly like "favourites/folders don't save",
-  // except it's not a persistence problem, it's the action itself silently
-  // failing. So: every storage touch is wrapped, and a failure never stops
-  // the app from working for the rest of that page load — it just means
-  // that particular environment won't survive a reload.
+     Why layered: some embedded WebViews (this shows up with file:// pages on
+     iOS/Android in particular) throw a SecurityError on ANY Web Storage
+     access — not a quota issue, an outright block — and IndexedDB is a
+     separate API that isn't always blocked under the same restriction, so
+     it's tried first. If a save call ever threw uncaught, every function
+     that calls it — toggleFavorite, createFolder, assignToFolder, etc. —
+     would abort right there, so the rest of that action (updating the UI,
+     closing a sheet) would never run. That looks exactly like "favourites/
+     folders don't save", except it's not a persistence problem, it's the
+     action itself silently failing. So: nothing here is ever allowed to
+     throw past this module, regardless of which tier is actually available.
+     ========================================================================== */
+
+  const IDB_NAME = 'pv-store';
+  const IDB_VERSION = 1;
+  const IDB_STORE = 'kv';
+
+  let dbOpenPromise = null; // memoized — only ever attempt indexedDB.open() once
+
+  function openIdb() {
+    if (dbOpenPromise) return dbOpenPromise;
+    dbOpenPromise = new Promise((resolve) => {
+      if (!window.indexedDB) { resolve(null); return; }
+      let req;
+      try {
+        req = indexedDB.open(IDB_NAME, IDB_VERSION);
+      } catch {
+        resolve(null);
+        return;
+      }
+      req.onupgradeneeded = () => {
+        try {
+          if (!req.result.objectStoreNames.contains(IDB_STORE)) {
+            req.result.createObjectStore(IDB_STORE);
+          }
+        } catch {
+          /* a genuinely fatal upgrade error still surfaces via onerror below */
+        }
+      };
+      req.onsuccess = () => resolve(req.result);
+      req.onerror = () => resolve(null);
+      req.onblocked = () => resolve(null); // don't hang forever waiting on another tab
+    });
+    return dbOpenPromise;
+  }
+
+  // Resolves { ok:true, value } when IndexedDB was actually reachable
+  // (value === undefined just means the key isn't set yet — a legitimately
+  // empty store is not the same as a broken one, and must not fall through
+  // to localStorage on every read), or { ok:false } when IndexedDB itself
+  // couldn't be used at all.
+  function idbGetKey(key) {
+    return openIdb().then((db) => {
+      if (!db) return { ok: false };
+      return new Promise((resolve) => {
+        try {
+          const tx = db.transaction(IDB_STORE, 'readonly');
+          const req = tx.objectStore(IDB_STORE).get(key);
+          req.onsuccess = () => resolve({ ok: true, value: req.result });
+          req.onerror = () => resolve({ ok: false });
+          tx.onerror = () => resolve({ ok: false });
+          tx.onabort = () => resolve({ ok: false });
+        } catch {
+          resolve({ ok: false });
+        }
+      });
+    }).catch(() => ({ ok: false }));
+  }
+
+  function idbSetKey(key, value) {
+    return openIdb().then((db) => {
+      if (!db) return false;
+      return new Promise((resolve) => {
+        try {
+          const tx = db.transaction(IDB_STORE, 'readwrite');
+          tx.objectStore(IDB_STORE).put(value, key);
+          tx.oncomplete = () => resolve(true);
+          tx.onerror = () => resolve(false);
+          tx.onabort = () => resolve(false);
+        } catch {
+          resolve(false);
+        }
+      });
+    }).catch(() => false);
+  }
+
+  // Tier 2 fallback. Deliberately localStorage, not sessionStorage — the
+  // point of this whole layer is to survive an actual app restart (a fresh
+  // WebView instance in Koder counts as a brand new "session" either way),
+  // not just a same-tab reload, so the fallback needs the same
+  // doesn't-expire-with-the-tab semantics IndexedDB has.
   function safeStorageGet(key, fallback) {
     try {
-      const raw = sessionStorage.getItem(key);
+      const raw = localStorage.getItem(key);
       return raw != null ? JSON.parse(raw) : fallback;
     } catch {
       return fallback;
@@ -128,19 +223,67 @@
   }
   function safeStorageSet(key, value) {
     try {
-      sessionStorage.setItem(key, JSON.stringify(value));
+      localStorage.setItem(key, JSON.stringify(value));
     } catch {
       /* storage unavailable — in-memory state (favorites/folders/assignments)
-         still works for this page load, it just won't persist a reload */
+         still works for this page load, it just won't survive a restart */
     }
   }
 
-  function loadFavorites() { return safeStorageGet('pv_favorites', []); }
-  function saveFavorites() { safeStorageSet('pv_favorites', Array.from(favorites)); }
-  function loadFolders() { return safeStorageGet('pv_folders', []); }
-  function saveFolders() { safeStorageSet('pv_folders', folders); }
-  function loadAssignments() { return safeStorageGet('pv_assignments', {}); }
-  function saveAssignments() { safeStorageSet('pv_assignments', assignments); }
+  // Unified layered read/write. `saveKey` is fire-and-forget by design —
+  // callers never await it, exactly like the plain-sessionStorage version
+  // this replaced, since the in-memory state (which every renderer actually
+  // reads from) is always updated by the caller before saveKey is invoked.
+  async function loadKey(key, fallback) {
+    const res = await idbGetKey(key);
+    if (res.ok) return res.value !== undefined ? res.value : fallback;
+    return safeStorageGet(key, fallback); // tier 2, itself falls through to `fallback` on failure (tier 3)
+  }
+
+  function saveKey(key, value) {
+    idbSetKey(key, value)
+      .then((ok) => { if (!ok) safeStorageSet(key, value); })
+      .catch(() => safeStorageSet(key, value)); // absolute safety net
+  }
+
+  function loadFavorites() { return loadKey('pv_favorites', []); }
+  function saveFavorites() { saveKey('pv_favorites', Array.from(favorites)); }
+  function loadFolders() { return loadKey('pv_folders', []); }
+  function saveFolders() { saveKey('pv_folders', folders); }
+  function loadAssignments() { return loadKey('pv_assignments', {}); }
+  function saveAssignments() { saveKey('pv_assignments', assignments); }
+
+  // Runs once at startup (see the bottom of this file). mediaItems is always
+  // empty at this point in practice — reaching it requires the native file
+  // picker round trip, which takes far longer than this resolves in — but
+  // the merges below are additive/guarded anyway so this is safe even if
+  // that assumption is ever wrong.
+  async function hydrateFromStorage() {
+    const [favList, folderList, assignmentMap] = await Promise.all([
+      loadFavorites(), loadFolders(), loadAssignments(),
+    ]);
+
+    favList.forEach((id) => favorites.add(id));
+
+    // Only apply the loaded snapshot if nothing local has happened yet — the
+    // only way folders/assignments could be non-empty already is the
+    // Folders tab's own "New Folder" empty-state button, which needs no
+    // media first, so it's the one path that can race hydration.
+    if (folders.length === 0) folders = folderList;
+    if (Object.keys(assignments).length === 0) assignments = assignmentMap;
+
+    // favorites/folders are read live at render time; item.folderId is a
+    // snapshot taken when the item was created, so it needs patching if any
+    // items were added before hydration resolved.
+    for (const item of mediaItems) {
+      const assigned = assignments[item.id];
+      if (assigned != null) item.folderId = assigned;
+    }
+
+    if (mediaItems.length) renderActive();
+  }
+
+  /* ------------------------------- Utilities -------------------------------- */
 
   function detectType(file) {
     if (file.type.startsWith('image/')) return 'photo';
@@ -1550,5 +1693,6 @@
 
   /* ---------------------------------- Init --------------------------------------- */
 
-  setActiveTab('all');
+  setActiveTab('all');   // paints the (currently always-empty) UI immediately
+  hydrateFromStorage();  // fire-and-forget async load of favourites/folders/assignments
 })();
