@@ -1130,24 +1130,39 @@ body.select-mode .tile .select-indicator { display: flex; }
 
   /* ------------------------------- Utilities -------------------------------- */
 
-  function loadFavorites() {
-    try { return JSON.parse(sessionStorage.getItem('pv_favorites') || '[]'); } catch { return []; }
+  // Some embedded WebViews (this shows up with file:// pages on iOS/Android
+  // in particular) throw a SecurityError on ANY sessionStorage access, not
+  // just quota errors. If a write throws uncaught, every function that calls
+  // it — toggleFavorite, createFolder, assignToFolder, etc. — aborts right
+  // there, so the rest of that action (updating the UI, closing a sheet)
+  // never runs. It looks exactly like "favourites/folders don't save",
+  // except it's not a persistence problem, it's the action itself silently
+  // failing. So: every storage touch is wrapped, and a failure never stops
+  // the app from working for the rest of that page load — it just means
+  // that particular environment won't survive a reload.
+  function safeStorageGet(key, fallback) {
+    try {
+      const raw = sessionStorage.getItem(key);
+      return raw != null ? JSON.parse(raw) : fallback;
+    } catch {
+      return fallback;
+    }
   }
-  function saveFavorites() {
-    sessionStorage.setItem('pv_favorites', JSON.stringify(Array.from(favorites)));
+  function safeStorageSet(key, value) {
+    try {
+      sessionStorage.setItem(key, JSON.stringify(value));
+    } catch {
+      /* storage unavailable — in-memory state (favorites/folders/assignments)
+         still works for this page load, it just won't persist a reload */
+    }
   }
-  function loadFolders() {
-    try { return JSON.parse(sessionStorage.getItem('pv_folders') || '[]'); } catch { return []; }
-  }
-  function saveFolders() {
-    sessionStorage.setItem('pv_folders', JSON.stringify(folders));
-  }
-  function loadAssignments() {
-    try { return JSON.parse(sessionStorage.getItem('pv_assignments') || '{}'); } catch { return {}; }
-  }
-  function saveAssignments() {
-    sessionStorage.setItem('pv_assignments', JSON.stringify(assignments));
-  }
+
+  function loadFavorites() { return safeStorageGet('pv_favorites', []); }
+  function saveFavorites() { safeStorageSet('pv_favorites', Array.from(favorites)); }
+  function loadFolders() { return safeStorageGet('pv_folders', []); }
+  function saveFolders() { safeStorageSet('pv_folders', folders); }
+  function loadAssignments() { return safeStorageGet('pv_assignments', {}); }
+  function saveAssignments() { safeStorageSet('pv_assignments', assignments); }
 
   function detectType(file) {
     if (file.type.startsWith('image/')) return 'photo';
