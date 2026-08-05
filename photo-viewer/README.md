@@ -12,7 +12,9 @@ server, and it just works.
   **Favourites**, **Folders** — each with its own icon, drawn from one
   consistent icon set so every tab shares the same art style.
 - **3-across grid** for All/Photos/Videos/Favourites, scrolling down as far
-  as your library goes.
+  as your library goes, **sorted newest first** (top-left) **to oldest last**
+  (bottom), by each file's last-modified date. Folders inherit the same
+  order, so a folder's fanned-out preview always shows its 5 newest items.
 - **Folders** tab shows **2 across**: each folder is a card with up to five
   of its photos/videos fanned out like a spread deck of cards, the folder
   name, and an item count underneath. Tap a folder to browse it in the same
@@ -39,6 +41,29 @@ server, and it just works.
   folder, size, date), and Remove from the library. A heart button on every
   tile is a one-tap favourite shortcut.
 - Light/dark mode aware, responsive, touch-target sized for mobile.
+
+## Performance
+
+Importing media is pure bookkeeping — reading file metadata and sorting an
+array — so adding hundreds or thousands of files is effectively instant, no
+matter how large the originals are. Nothing about the originals is decoded
+at import time.
+
+- **Previews are never full-resolution.** Every grid tile, folder-fan card,
+  and folder-detail tile shows a small (~360px), pre-cropped, JPEG-quality
+  thumbnail — generated once per item, cached, and reused everywhere that
+  item appears. The original full-quality file is only ever touched when you
+  open something in the fullscreen lightbox.
+- **Thumbnails are generated lazily**, only for tiles that actually scroll
+  into view (via `IntersectionObserver`), a few at a time (a small
+  concurrency-limited queue), so scrolling through a huge library stays
+  smooth instead of decoding everything up front.
+- **Video tiles never contain a live `<video>` element.** A single frame is
+  captured once into the same small cached thumbnail image used for photos —
+  real video decoding only happens when you open a video in the lightbox.
+- **Grids render in chunks** across idle frames rather than blocking the
+  main thread building thousands of DOM nodes in one pass, so even a huge
+  import doesn't freeze the UI while the grid fills in.
 
 ## Notes & limitations
 
