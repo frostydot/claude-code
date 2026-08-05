@@ -13,10 +13,18 @@ environments (like Koder) that run one HTML file.
 - **Bottom tab bar** with five sections: **All**, **Photos**, **Videos**,
   **Favourites**, **Folders** — each with its own icon, drawn from one
   consistent icon set so every tab shares the same art style.
-- **3-across grid** for All/Photos/Videos/Favourites, scrolling down as far
-  as your library goes, **sorted newest first** (top-left) **to oldest last**
-  (bottom), by each file's last-modified date. Folders inherit the same
-  order, so a folder's fanned-out preview always shows its 5 newest items.
+- **Grid** for All/Photos/Videos/Favourites, scrolling down as far as your
+  library goes, **sorted newest first** (top-left) **to oldest last**
+  (bottom). Sort prefers a JPEG's real EXIF *date taken* when present (a
+  Settings toggle), falling back to the file's last-modified date otherwise
+  — Settings → Display also lets you switch the grid between 2/3/4 columns
+  (defaults to 3). Folders inherit the active sort, so a folder's
+  fanned-out preview always shows its 5 newest items.
+- **Duplicate detection**: items sharing a name and size get a small **DUP**
+  badge (toggle in Settings) — catches the same photo imported twice from
+  different sources with different timestamps, which the id alone wouldn't.
+- **A status bar** above the grid shows the current item count and total
+  size (or the live selection count while in Select mode).
 - **Folders are yours to organize.** Tap **＋** to add loose photos and
   videos — there's no disk-folder import. Instead, use a photo/video's •••
   menu → **Move to Folder** to file it into a folder you create right there
@@ -42,29 +50,43 @@ environments (like Koder) that run one HTML file.
   media assigned to them show up. Re-add the exact same file later (same
   name/size/date) and it snaps straight back into whichever folder you'd
   put it in, since favourites and folder assignments are keyed off that id.
-- **Lightbox viewer**: tap any tile to open a fullscreen view.
+- **Lightbox viewer**: tap any tile to open a fullscreen view. Opens
+  progressively — the cached thumbnail shows instantly while the full-
+  resolution original decodes in the background, then swaps in, so large
+  photos never leave the stage blank while decoding.
   - **Pinch-to-zoom and pan on photos**, modeled on Apple Photos — zoom is
     anchored exactly between your fingers, tracks 1:1 with the gesture, the
     header/footer/nav chrome fades out while zoomed, panning is bounds-
     checked with a rubber-band give at the edges, and pinching past the
     zoom limit stretches past it then springs back to the max on release.
-    Double-tap zooms in/out too.
+    Double-tap zooms in/out too; on desktop, mouse wheel (or ctrl/⌘+wheel)
+    does the same, zooming toward the cursor. A small HUD shows the current
+    zoom percentage while it's changing.
+  - **Fullscreen**: a button in the lightbox header requests real
+    fullscreen where the platform allows it, falling back to a CSS-only
+    "cinema" mode (hides all chrome, shows an explicit exit pill) where it
+    doesn't — notably iOS Safari, which won't fullscreen arbitrary elements.
   - Swipe left/right (or arrow keys) to move between photos/videos — only
     active at 1x zoom, so it never fights with panning a zoomed photo.
   - Favourite toggle and native video playback.
 - **Swipe between tabs** on the main grid (left/right), in addition to the
   tab bar.
-- **Per-item menu** (••• button) for Add/Remove Favourite, Move to Folder,
-  Info (type, folder, size, date), and Remove from the library. A heart
-  button on every tile is a one-tap favourite shortcut.
+- **Per-item menu** (••• button, or hold/long-press any tile) for Add/Remove
+  Favourite, Move to Folder, Info (type, folder, size, date), and Remove
+  from the library. A heart button on every tile is a one-tap favourite
+  shortcut. **Remove is undoable** — a toast with an Undo button appears for
+  a few seconds after removing anything, single or bulk.
 - **Select mode** for mass-organizing: tap the select-circle button in the
-  topbar (on any media grid — All/Photos/Videos/Favourites, or inside a
-  folder) to switch into multi-select. Tap tiles to select them, use
-  **Select All** in the topbar to grab everything currently in view, then
-  use the bottom action bar to **Favourite/Unfavourite**, **Move** the whole
-  selection into a folder (or a brand new one) in one shot, or **Remove**
-  them all — each action exits select mode when it's done. **Cancel** backs
-  out without doing anything.
+  topbar, or hold/long-press any tile (on any media grid — All/Photos/
+  Videos/Favourites, or inside a folder) to switch into multi-select. Tap
+  tiles to select them, use **Select All** in the topbar to grab everything
+  currently in view, then use the bottom action bar to
+  **Favourite/Unfavourite**, **Move** the whole selection into a folder (or
+  a brand new one) in one shot, or **Remove** them all (also undoable) —
+  each action exits select mode when it's done. **Cancel** backs out
+  without doing anything.
+- **Settings panel** (gear icon): grid density, EXIF-sort and duplicate-
+  marking toggles, and a manual backup export/import (see "Persistence").
 - Light/dark mode aware, responsive, touch-target sized for mobile.
 
 ## Performance
@@ -80,17 +102,24 @@ at import time.
   item appears. The original full-quality file is only ever touched when you
   open something in the fullscreen lightbox.
 - **Thumbnails are generated lazily**, only for tiles that actually scroll
-  into view (via `IntersectionObserver`), a few at a time (a small
-  concurrency-limited queue) — and **prioritized**: photos load before
-  videos, and within each, top-to-bottom in the order they appear on screen,
-  so what you'd expect to see fill in first does.
+  into view (via `IntersectionObserver`), a few at a time — separate
+  concurrency caps for photos vs. videos, since decoding video is far more
+  expensive and some platforms (iOS in particular) hard-limit how many
+  video decoders can exist at once — and **prioritized**: photos load
+  before videos, and within each, top-to-bottom in the order they appear on
+  screen, so what you'd expect to see fill in first does.
 - **Video tiles never contain a live `<video>` element.** A single still
-  frame is captured once — retried at a few different timestamps so a real
-  frame is captured essentially every time, not just when the first blind
-  seek happens to land on one — into the same small cached thumbnail image
-  used for photos. Real video decoding only happens when you open a video in
-  the lightbox. On the rare total failure (corrupt/unsupported file) a
-  generic icon is shown instead of a permanently blank tile.
+  frame is captured once — retried at a few different timestamps, keeping
+  the brightest one found (measured with a cheap luminance probe) rather
+  than trusting the first "successful" seek, since a blind seek occasionally
+  lands on a black/undecoded frame even when it reports success — into the
+  same small cached thumbnail image used for photos. Real video decoding
+  only happens when you open a video in the lightbox. On the rare total
+  failure (corrupt/unsupported file) a generic icon is shown instead of a
+  permanently blank tile.
+- **Offscreen tiles skip layout and paint entirely** (`content-visibility:
+  auto`), on top of the lazy-thumbnail and chunked-rendering strategies
+  above, so even a very large library stays smooth to scroll.
 - **Grids render in chunks** across idle frames rather than blocking the
   main thread building thousands of DOM nodes in one pass, so even a huge
   import doesn't freeze the UI while the grid fills in.
@@ -120,6 +149,14 @@ at import time.
   file — in a later session, not just after a reload — snaps it straight
   back into whichever favourite/folder state it had, on whichever storage
   tier actually held that data.
+- **Manual backup, as a belt-and-suspenders option**: Settings → Backup →
+  **Export Backup** downloads a small, human-readable JSON file with your
+  favourites/folders/assignments (never the photos/videos — a page can't
+  bundle those up even if it wanted to). **Import Backup** reads one back
+  in and *merges* it into whatever's already loaded — matching folders by
+  name, adding anything new — it never deletes or overwrites what you
+  already have. Useful if automatic storage turns out to be unavailable in
+  a given environment, or to carry your organization to another device.
 
 ## Notes & limitations
 

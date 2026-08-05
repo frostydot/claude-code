@@ -28,6 +28,10 @@
   <symbol id="icon-check" viewBox="0 0 24 24"><path d="M5 12.5l4.5 4.5L19 7"/></symbol>
   <symbol id="icon-pencil" viewBox="0 0 24 24"><path d="M4 20l1-4.2L15.8 5 19 8.2 8.2 19 4 20z"/><path d="M13.5 6.5l4 4"/></symbol>
   <symbol id="icon-select" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M8 12.5l2.5 2.5L16 9.5"/></symbol>
+  <symbol id="icon-settings" viewBox="0 0 24 24"><circle cx="12" cy="12" r="3.2"/><path d="M19.4 13.5a1.7 1.7 0 0 0 .34 1.87l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.7 1.7 0 0 0-1.87-.34 1.7 1.7 0 0 0-1 1.55V19.6a2 2 0 1 1-4 0v-.09a1.7 1.7 0 0 0-1.1-1.55 1.7 1.7 0 0 0-1.87.34l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.7 1.7 0 0 0 .34-1.87 1.7 1.7 0 0 0-1.55-1H2.4a2 2 0 1 1 0-4h.09a1.7 1.7 0 0 0 1.55-1.1 1.7 1.7 0 0 0-.34-1.87l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.7 1.7 0 0 0 1.87.34H8.5a1.7 1.7 0 0 0 1-1.55V2.4a2 2 0 1 1 4 0v.09a1.7 1.7 0 0 0 1 1.55 1.7 1.7 0 0 0 1.87-.34l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.7 1.7 0 0 0-.34 1.87V8.5a1.7 1.7 0 0 0 1.55 1H21.6a2 2 0 1 1 0 4h-.09a1.7 1.7 0 0 0-1.55 1z"/></symbol>
+  <symbol id="icon-expand" viewBox="0 0 24 24"><path d="M9 4H4v5M15 4h5v5M9 20H4v-5M15 20h5v-5"/></symbol>
+  <symbol id="icon-collapse" viewBox="0 0 24 24"><path d="M4 9h5V4M20 9h-5V4M4 15h5v5M20 15h-5v5"/></symbol>
+  <symbol id="icon-copy" viewBox="0 0 24 24"><rect x="8" y="8" width="12" height="12" rx="2"/><path d="M16 8V6a2 2 0 0 0-2-2H6a2 2 0 0 0-2 2v8a2 2 0 0 0 2 2h2"/></symbol>
 </svg>
 
 <div id="app">
@@ -43,13 +47,49 @@
       <button class="icon-btn" id="selectModeBtn" aria-label="Select items">
         <svg class="icon"><use href="#icon-select"/></svg>
       </button>
+      <div class="settings-wrap">
+        <button class="icon-btn" id="settingsBtn" aria-label="Settings">
+          <svg class="icon"><use href="#icon-settings"/></svg>
+        </button>
+        <div class="settings-panel" id="settingsPanel" hidden>
+          <div class="settings-title">Display</div>
+          <div class="segmented" id="gridSizeGroup">
+            <button class="segmented-btn" data-grid="4">Small</button>
+            <button class="segmented-btn active" data-grid="3">Medium</button>
+            <button class="segmented-btn" data-grid="2">Large</button>
+          </div>
+          <div class="settings-title">Preferences</div>
+          <label class="settings-row">
+            <span>Sort by Date Taken</span>
+            <span class="toggle"><input type="checkbox" id="prefExifToggle" checked><span class="toggle-track"></span><span class="toggle-knob"></span></span>
+          </label>
+          <label class="settings-row">
+            <span>Mark Duplicates</span>
+            <span class="toggle"><input type="checkbox" id="prefDupesToggle" checked><span class="toggle-track"></span><span class="toggle-knob"></span></span>
+          </label>
+          <div class="settings-title">Backup</div>
+          <button class="settings-action" id="exportBackupBtn">
+            <svg class="icon"><use href="#icon-copy"/></svg><span>Export Backup</span>
+          </button>
+          <button class="settings-action" id="importBackupBtn">
+            <svg class="icon"><use href="#icon-folder-plus"/></svg><span>Import Backup</span>
+          </button>
+          <p class="settings-hint">Backs up favourites and folders (not the photos/videos themselves) to a file you can re-import here, or on another device.</p>
+        </div>
+      </div>
       <button class="icon-btn" id="addFilesBtn" aria-label="Add photos or videos">
         <svg class="icon"><use href="#icon-plus"/></svg>
       </button>
     </div>
   </header>
 
+  <div class="status-bar" id="statusBar" hidden>
+    <span class="status-text" id="statusText"></span>
+    <span class="status-badge" id="statusBadge"></span>
+  </div>
+
   <input type="file" id="fileInput" accept="image/*,video/*" multiple hidden>
+  <input type="file" id="backupImport" accept=".json" hidden>
 
   <main id="content">
     <section class="view grid-view active" data-view="all" id="view-all">
@@ -134,9 +174,14 @@
         <svg class="icon"><use href="#icon-x"/></svg>
       </button>
       <span class="lightbox-counter" id="lightboxCounter"></span>
-      <button class="icon-btn light" id="lightboxFav" aria-label="Toggle favourite">
-        <svg class="icon"><use href="#icon-favorites"/></svg>
-      </button>
+      <div class="lightbox-header-actions">
+        <button class="icon-btn light" id="lightboxFullscreen" aria-label="Toggle fullscreen">
+          <svg class="icon"><use href="#icon-expand"/></svg>
+        </button>
+        <button class="icon-btn light" id="lightboxFav" aria-label="Toggle favourite">
+          <svg class="icon"><use href="#icon-favorites"/></svg>
+        </button>
+      </div>
     </div>
     <div class="lightbox-stage" id="lightboxStage">
       <button class="lightbox-nav prev" id="lightboxPrev" aria-label="Previous">
@@ -145,6 +190,10 @@
       <div class="lightbox-media" id="lightboxMedia"></div>
       <button class="lightbox-nav next" id="lightboxNext" aria-label="Next">
         <svg class="icon"><use href="#icon-chevron-right"/></svg>
+      </button>
+      <div class="zoom-hud" id="zoomHud">100%</div>
+      <button class="cinema-exit" id="cinemaExit" hidden>
+        <svg class="icon"><use href="#icon-collapse"/></svg><span>Exit Fullscreen</span>
       </button>
     </div>
     <div class="lightbox-footer">
@@ -203,6 +252,11 @@
     </div>
   </div>
   <div class="info-sheet-backdrop" id="moveSheetBackdrop" hidden></div>
+
+  <div class="toast" id="toast" hidden>
+    <span class="toast-text" id="toastText"></span>
+    <button class="toast-action" id="toastAction" hidden></button>
+  </div>
 
 </div>
 

@@ -50,6 +50,15 @@
   let selectMode = false;
   const selectedIds = new Set();
 
+  let gridSize = loadGridSizePref();  // column count: 2 | 3 | 4, default 3 ("Medium" = the original spec)
+  let prefExif = true;                // sort by EXIF date-taken when available, not just lastModified
+  let prefDupes = true;               // show the DUP badge on name+size matches
+  let cinemaMode = false;             // CSS-only fullscreen fallback for the lightbox
+  let toastTimer = null;
+  let toastHideTimer = null;
+  let hudTimer = null;
+  let pendingRemoval = null;          // { items: [{item, wasFav}], timer } — undo window before URLs are actually revoked
+
   const IMAGE_EXT = /\.(jpe?g|png|gif|webp|heic|heif|bmp|tiff?|avif)$/i;
   const VIDEO_EXT = /\.(mp4|mov|m4v|webm|mkv|avi|3gp)$/i;
 
@@ -116,6 +125,27 @@
   const moveSheet = $('#moveSheet');
   const moveSheetBackdrop = $('#moveSheetBackdrop');
   const moveFolderList = $('#moveFolderList');
+
+  const statusBar = $('#statusBar');
+  const statusText = $('#statusText');
+  const statusBadge = $('#statusBadge');
+
+  const settingsBtn = $('#settingsBtn');
+  const settingsPanel = $('#settingsPanel');
+  const gridSizeGroup = $('#gridSizeGroup');
+  const prefExifToggle = $('#prefExifToggle');
+  const prefDupesToggle = $('#prefDupesToggle');
+  const exportBackupBtn = $('#exportBackupBtn');
+  const importBackupBtn = $('#importBackupBtn');
+  const backupImport = $('#backupImport');
+
+  const toast = $('#toast');
+  const toastText = $('#toastText');
+  const toastAction = $('#toastAction');
+
+  const lightboxFullscreen = $('#lightboxFullscreen');
+  const cinemaExit = $('#cinemaExit');
+  const zoomHud = $('#zoomHud');
 
   /* ==========================================================================
      Persistence — IndexedDB, falling back to localStorage, falling back to
@@ -316,16 +346,205 @@
     });
   }
 
+  function clamp(v, lo, hi) { return Math.max(lo, Math.min(hi, v)); }
+
+  function sortKeyOf(item) {
+    // EXIF date-taken is the more accurate "when was this actually shot"
+    // signal (lastModified changes if a file is copied/re-exported), so
+    // prefer it when available and the setting is on; always fall back to
+    // lastModified otherwise.
+    return (prefExif && item.exifDate) ? item.exifDate : item.lastModified;
+  }
+
   function sortMediaItems() {
     // Newest first, top-left to bottom-right in the grid. __pos is cached so
     // the thumbnail-loading priority queue can order cheaply (O(1) lookup)
     // instead of re-scanning the array on every comparison.
-    mediaItems.sort((a, b) => b.lastModified - a.lastModified);
+    mediaItems.sort((a, b) => sortKeyOf(b) - sortKeyOf(a));
     reindexPositions();
   }
 
   function reindexPositions() {
     mediaItems.forEach((item, i) => { item.__pos = i; });
+  }
+
+  function loadGridSizePref() {
+    try {
+      const v = parseInt(localStorage.getItem('pv_gridsize'), 10);
+      return [2, 3, 4].includes(v) ? v : 3;
+    } catch {
+      return 3;
+    }
+  }
+  function saveGridSizePref(v) {
+    try { localStorage.setItem('pv_gridsize', String(v)); } catch { /* cosmetic only, fine to lose */ }
+  }
+
+  function applyGridSize() {
+    $$('.tile-grid').forEach((el) => { el.dataset.grid = String(gridSize); });
+    $$('.segmented-btn', gridSizeGroup).forEach((btn) => {
+      btn.classList.toggle('active', Number(btn.dataset.grid) === gridSize);
+    });
+  }
+
+  /* --------------------------------- Toast ---------------------------------- */
+
+  function showToast(text, opts = {}) {
+    toastText.textContent = text;
+    if (opts.actionLabel) {
+      toastAction.textContent = opts.actionLabel;
+      toastAction.hidden = false;
+      toastAction.onclick = () => { hideToast(); if (opts.onAction) opts.onAction(); };
+    } else {
+      toastAction.hidden = true;
+      toastAction.onclick = null;
+    }
+    clearTimeout(toastHideTimer);
+    toast.hidden = false;
+    requestAnimationFrame(() => toast.classList.add('show'));
+    clearTimeout(toastTimer);
+    toastTimer = setTimeout(hideToast, opts.actionLabel ? 6000 : 2600);
+  }
+
+  function hideToast() {
+    clearTimeout(toastTimer);
+    toast.classList.remove('show');
+    clearTimeout(toastHideTimer);
+    toastHideTimer = setTimeout(() => { toast.hidden = true; }, 220);
+  }
+
+  /* ----------------------------- Duplicate detection -------------------------- */
+  // Two items are "duplicates" if they share a name and size — the same
+  // signal used to notice the same photo imported from two different
+  // sources (e.g. a phone backup and a cloud download) with different
+  // last-modified timestamps, which the id (name+size+lastModified) alone
+  // wouldn't catch.
+
+  function buildDupeMap(items) {
+    const map = new Map();
+    for (const item of items) {
+      const key = `${item.name}|${item.size}`;
+      map.set(key, (map.get(key) || 0) + 1);
+    }
+    return map;
+  }
+
+  /* ==========================================================================
+     EXIF date-taken — reads the real capture date out of a JPEG's EXIF block
+     when present, so "newest first" reflects when a photo was actually shot
+     rather than whenever the file happened to last get touched on disk
+     (which changes on copy/re-export/sync and can be wildly wrong). Runs
+     against the first 256KB of the file only — EXIF always lives at the
+     very start of a JPEG — with a small bounded-concurrency pool so a big
+     import doesn't kick off hundreds of simultaneous file reads at once.
+     ========================================================================== */
+
+  const EXIF_CONCURRENCY = 6;
+  const exifCache = new WeakMap(); // File -> Date|null, in case the same File is ever probed twice
+
+  function readExifString(view, start, len) {
+    let out = '';
+    const end = Math.min(view.byteLength, start + len);
+    for (let i = start; i < end; i++) {
+      const c = view.getUint8(i);
+      if (!c) break;
+      out += String.fromCharCode(c);
+    }
+    return out.trim();
+  }
+
+  function parseExifDateString(s) {
+    if (!s) return null;
+    const m = /^(\d{4}):(\d{2}):(\d{2})[ T](\d{2}):(\d{2}):(\d{2})/.exec(s);
+    if (!m) return null;
+    const d = new Date(+m[1], +m[2] - 1, +m[3], +m[4], +m[5], +m[6]);
+    return isNaN(d) ? null : d;
+  }
+
+  async function readExifDateTaken(file) {
+    if (exifCache.has(file)) return exifCache.get(file);
+    const looksJpeg = file.type === 'image/jpeg' || /\.jpe?g$/i.test(file.name || '');
+    if (!looksJpeg) { exifCache.set(file, null); return null; }
+    let result = null;
+    try {
+      const buf = await file.slice(0, 262144).arrayBuffer();
+      const view = new DataView(buf);
+      if (view.getUint16(0, false) === 0xFFD8) {
+        let off = 2;
+        while (off + 4 < view.byteLength) {
+          if (view.getUint8(off) !== 0xFF) break;
+          const marker = view.getUint8(off + 1);
+          const size = view.getUint16(off + 2, false);
+          if (size < 2) break;
+          if (marker === 0xE1) {
+            const segStart = off + 4;
+            if (view.getUint32(segStart, false) === 0x45786966 && view.getUint16(segStart + 4, false) === 0) {
+              const tiff = segStart + 6;
+              const little = view.getUint16(tiff, false) === 0x4949;
+              const u16 = (p) => view.getUint16(p, little);
+              const u32 = (p) => view.getUint32(p, little);
+              if (u16(tiff + 2) === 0x002A) {
+                const ifd0 = tiff + u32(tiff + 4);
+                const entryCount = u16(ifd0);
+                let modifyDate = null, exifPtr = null;
+                for (let i = 0; i < entryCount; i++) {
+                  const e = ifd0 + 2 + i * 12;
+                  const tag = u16(e), count = u32(e + 4), valOff = u32(e + 8);
+                  if (tag === 0x0132 && u16(e + 2) === 2 && count >= 10) {
+                    modifyDate = readExifString(view, count <= 4 ? e + 8 : tiff + valOff, count);
+                  }
+                  if (tag === 0x8769) exifPtr = valOff;
+                }
+                let dateTaken = null;
+                if (exifPtr) {
+                  const exifIfd = tiff + exifPtr;
+                  const exifCount = u16(exifIfd);
+                  for (let i = 0; i < exifCount; i++) {
+                    const e = exifIfd + 2 + i * 12;
+                    const tag = u16(e), count = u32(e + 4), valOff = u32(e + 8);
+                    if (tag === 0x9003 && u16(e + 2) === 2 && count >= 10) {
+                      dateTaken = readExifString(view, count <= 4 ? e + 8 : tiff + valOff, count);
+                      break;
+                    }
+                  }
+                }
+                result = parseExifDateString(dateTaken || modifyDate);
+              }
+            }
+          }
+          if (marker === 0xDA || marker === 0xD9) break;
+          off += 2 + size;
+        }
+      }
+    } catch { /* corrupt/truncated header — just fall back to lastModified */ }
+    exifCache.set(file, result);
+    return result;
+  }
+
+  // Reads EXIF for a batch of newly-added photos with bounded concurrency,
+  // then re-sorts and re-renders once (not per-file) if anything changed —
+  // avoids either blocking the initial add or causing a flurry of re-renders
+  // as each file's read trickles in.
+  async function refineSortWithExif(items) {
+    const candidates = items.filter((it) => it.type === 'photo' && mediaMap.has(it.id));
+    if (!candidates.length) return;
+    let i = 0;
+    let changed = false;
+    async function worker() {
+      while (i < candidates.length) {
+        const item = candidates[i++];
+        if (!mediaMap.has(item.id)) continue; // removed while we were reading
+        const date = await readExifDateTaken(item.file);
+        if (date) { item.exifDate = date.getTime(); changed = true; }
+      }
+    }
+    const pool = [];
+    for (let w = 0; w < Math.min(EXIF_CONCURRENCY, candidates.length); w++) pool.push(worker());
+    await Promise.all(pool);
+    if (changed && prefExif) {
+      sortMediaItems();
+      renderActive();
+    }
   }
 
   /* ==========================================================================
@@ -354,9 +573,15 @@
 
   const THUMB_SIZE = 360; // output px (square) — small enough to be cheap, sharp enough for a ~2x DPR tile
   const THUMB_QUALITY = 0.72;
-  const MAX_CONCURRENT_THUMBS = 3;
+  // Separate caps per type: image decode is cheap and parallelizes well;
+  // video decode is not — iOS in particular hard-limits how many live
+  // media decoders can exist at once, and pushing past that produces runs
+  // of failed captures rather than just running slower.
+  const MAX_CONCURRENT_IMG_THUMBS = 5;
+  const MAX_CONCURRENT_VIDEO_THUMBS = 2;
 
-  let activeThumbJobs = 0;
+  let activeImgThumbs = 0;
+  let activeVideoThumbs = 0;
   const thumbQueue = [];
 
   function thumbPriority(item) {
@@ -379,16 +604,22 @@
   }
 
   function pumpThumbQueue() {
-    while (activeThumbJobs < MAX_CONCURRENT_THUMBS && thumbQueue.length) {
-      // Small queue (bounded by whatever's currently near-viewport) — cheap
-      // to keep sorted by priority right before each pop.
-      thumbQueue.sort((a, b) => thumbPriority(a) - thumbPriority(b));
-      const item = thumbQueue.shift();
-      activeThumbJobs++;
+    if (!thumbQueue.length) return;
+    // Small queue (bounded by whatever's currently near-viewport) — cheap
+    // to keep sorted by priority right before each scan.
+    thumbQueue.sort((a, b) => thumbPriority(a) - thumbPriority(b));
+    for (let i = 0; i < thumbQueue.length; i++) {
+      const item = thumbQueue[i];
+      const isImg = item.type === 'photo';
+      if (isImg && activeImgThumbs >= MAX_CONCURRENT_IMG_THUMBS) continue;
+      if (!isImg && activeVideoThumbs >= MAX_CONCURRENT_VIDEO_THUMBS) continue;
+      thumbQueue.splice(i, 1);
+      i--;
+      if (isImg) activeImgThumbs++; else activeVideoThumbs++;
       generateThumb(item)
         .catch(() => null)
         .then((url) => {
-          activeThumbJobs--;
+          if (isImg) activeImgThumbs--; else activeVideoThumbs--;
           const waiters = item.thumbWaiters || [];
           item.thumbWaiters = null;
           if (!url) item.thumbFailed = true;
@@ -463,10 +694,31 @@
     });
   }
 
+  // 8x8 average-luminance probe (0-255). Cheap — microseconds — and lets us
+  // tell a genuinely dark scene apart from a black/undecoded frame, which a
+  // single blind seek occasionally produces.
+  function probeLuminance(source) {
+    try {
+      const p = document.createElement('canvas');
+      p.width = 8; p.height = 8;
+      const pctx = p.getContext('2d', { alpha: false, willReadFrequently: true });
+      pctx.drawImage(source, 0, 0, 8, 8);
+      const d = pctx.getImageData(0, 0, 8, 8).data;
+      let lum = 0;
+      for (let i = 0; i < d.length; i += 4) lum += d[i] + d[i + 1] + d[i + 2];
+      return lum / (64 * 3);
+    } catch {
+      return 0;
+    }
+  }
+
   // Captures a real still frame for every playable video. Retries at a few
-  // different timestamps (10%, ~50% capped, then the very first frame)
-  // before giving up, since a single blind seek occasionally lands on a
-  // black/undecoded frame right at 0.
+  // different timestamps, keeping whichever attempt was brightest (a single
+  // blind seek occasionally lands on a black/undecoded frame even when the
+  // seek itself "succeeds"), and stops early the moment one is bright
+  // enough that there's no point trying further. Only returns null if
+  // nothing ever decoded at all — a genuinely dark video still gets its
+  // darkest-available real frame rather than nothing.
   function videoToCanvas(item) {
     return new Promise((resolve) => {
       const video = document.createElement('video');
@@ -476,6 +728,8 @@
       const url = URL.createObjectURL(item.file);
       let settled = false;
       let seekAttempts = 0;
+      let bestCanvas = null;
+      let bestLum = -1;
 
       const finish = (val) => {
         if (settled) return;
@@ -489,7 +743,7 @@
       const seekTimes = () => {
         const d = video.duration;
         if (!isFinite(d) || d <= 0) return [0];
-        return [Math.min(0.5, d * 0.1), Math.min(1.5, d * 0.5), 0];
+        return [Math.min(0.5, d * 0.1), Math.min(1.5, d * 0.5), Math.min(3, d * 0.75), 0];
       };
 
       function tryCapture() {
@@ -498,8 +752,11 @@
         if (!vw || !vh) return false;
         if (isFinite(video.duration)) item.duration = video.duration;
         try {
-          finish(cropToSquare(video, vw, vh, THUMB_SIZE));
-          return true;
+          const canvas = cropToSquare(video, vw, vh, THUMB_SIZE);
+          const lum = probeLuminance(video);
+          if (lum > bestLum) { bestLum = lum; bestCanvas = canvas; }
+          if (lum > 12) { finish(canvas); return true; } // bright enough — done
+          return false; // might be a black/undecoded frame — try another time
         } catch {
           return false;
         }
@@ -507,7 +764,7 @@
 
       function attemptNextSeek() {
         const times = seekTimes();
-        if (seekAttempts >= times.length) { finish(null); return; }
+        if (seekAttempts >= times.length) { finish(bestCanvas); return; }
         const t = times[seekAttempts++];
         try { video.currentTime = t; } catch { attemptNextSeek(); }
       }
@@ -521,9 +778,9 @@
         if (!tryCapture()) attemptNextSeek();
       });
 
-      video.addEventListener('error', () => finish(null));
+      video.addEventListener('error', () => finish(bestCanvas));
 
-      const safety = setTimeout(() => { if (!tryCapture()) finish(null); }, 7000);
+      const safety = setTimeout(() => finish(bestCanvas), 7000);
       video.src = url;
       try { video.load(); } catch { /* noop */ }
     });
@@ -601,6 +858,7 @@
     // why adding even a large batch of files stays fast. Thumbnails are
     // generated lazily, on demand, as tiles actually scroll into view.
     let added = 0;
+    const newItems = [];
     for (const file of Array.from(fileList)) {
       const type = detectType(file);
       if (!type) continue;
@@ -610,6 +868,7 @@
       const item = {
         id, url, file, name: file.name, size: file.size, type,
         lastModified: file.lastModified || Date.now(),
+        exifDate: null, // filled in asynchronously by refineSortWithExif, for JPEGs
         folderId: assignments[id] || null, // snap back into a remembered folder automatically
         duration: null,
         thumbUrl: null,
@@ -619,32 +878,76 @@
       };
       mediaItems.push(item);
       mediaMap.set(id, item);
+      newItems.push(item);
       added++;
     }
     if (added) {
       sortMediaItems();
       renderActive();
+      refineSortWithExif(newItems);
     }
   }
 
-  // No render/save-triggering side effect beyond what's strictly needed to
-  // drop the item — lets bulk removal do its own single reindex + render
-  // instead of one per item.
-  function removeItemCore(id) {
-    const idx = mediaItems.findIndex((i) => i.id === id);
-    if (idx === -1) return;
-    const [item] = mediaItems.splice(idx, 1);
-    mediaMap.delete(id);
-    favorites.delete(id);
+  // Removal is undoable: the item is pulled out of mediaItems/mediaMap right
+  // away (so it disappears immediately), but its object URLs are only
+  // revoked once the undo window actually closes — either the toast times
+  // out, a new removal supersedes it, or the user navigates in a way that
+  // flushes it. Undoing before that puts the exact same item (URLs intact)
+  // right back.
+  function revokeItemUrls(item) {
     URL.revokeObjectURL(item.url);
     if (item.thumbUrl) URL.revokeObjectURL(item.thumbUrl);
   }
 
-  function removeItem(id) {
-    removeItemCore(id);
+  function flushPendingRemoval() {
+    if (!pendingRemoval) return;
+    clearTimeout(pendingRemoval.timer);
+    pendingRemoval.items.forEach(({ item }) => revokeItemUrls(item));
+    pendingRemoval = null;
+  }
+
+  function undoRemoval() {
+    if (!pendingRemoval) return;
+    clearTimeout(pendingRemoval.timer);
+    const { items } = pendingRemoval;
+    pendingRemoval = null;
+    items.forEach(({ item, wasFav }) => {
+      if (mediaMap.has(item.id)) return; // shouldn't happen, but never duplicate
+      mediaItems.push(item);
+      mediaMap.set(item.id, item);
+      if (wasFav) favorites.add(item.id);
+    });
+    sortMediaItems();
+    saveFavorites();
+    renderActive();
+  }
+
+  function removeItems(ids, opts = {}) {
+    flushPendingRemoval(); // only one undo window open at a time
+    const removed = [];
+    for (const id of ids) {
+      const idx = mediaItems.findIndex((i) => i.id === id);
+      if (idx === -1) continue;
+      const [item] = mediaItems.splice(idx, 1);
+      mediaMap.delete(id);
+      removed.push({ item, wasFav: favorites.has(id) });
+      favorites.delete(id);
+    }
+    if (!removed.length) return null;
     saveFavorites();
     reindexPositions();
     renderActive();
+
+    if (opts.silent) {
+      removed.forEach(({ item }) => revokeItemUrls(item));
+      return removed;
+    }
+    pendingRemoval = { items: removed, timer: setTimeout(flushPendingRemoval, 6000) };
+    showToast(`Removed ${removed.length} item${removed.length === 1 ? '' : 's'}`, {
+      actionLabel: 'Undo',
+      onAction: undoRemoval,
+    });
+    return removed;
   }
 
   /* --------------------------------- Tabs ----------------------------------- */
@@ -705,6 +1008,7 @@
     folderDetailTitle.textContent = folder ? folder.name : 'Folder';
     syncTopbar();
     renderFolderDetail();
+    updateStatusBar();
   }
 
   function getCurrentGridItems() {
@@ -721,6 +1025,7 @@
   function renderActive() {
     if (currentFolder !== null) {
       renderFolderDetail();
+      updateStatusBar();
       return;
     }
     switch (currentTab) {
@@ -740,6 +1045,21 @@
         renderFolders();
         break;
     }
+    updateStatusBar();
+  }
+
+  function updateStatusBar() {
+    // Item counts are shown per-card on the Folders overview itself, so the
+    // bar stays out of the way there; it's only useful on an actual grid.
+    if (currentTab === 'folders' && currentFolder === null) { statusBar.hidden = true; return; }
+    if (!mediaItems.length) { statusBar.hidden = true; return; }
+    const items = getCurrentGridItems();
+    statusBar.hidden = false;
+    statusText.textContent = selectMode
+      ? `${selectedIds.size} of ${items.length} selected`
+      : `${items.length} item${items.length === 1 ? '' : 's'}`;
+    const totalSize = items.reduce((sum, it) => sum + (it.size || 0), 0);
+    statusBadge.textContent = formatBytes(totalSize);
   }
 
   /* --------------------------- Progressive rendering --------------------------- */
@@ -786,7 +1106,9 @@
 
     gridEl.hidden = false;
     emptyEl.hidden = true;
-    fillGridProgressively(gridEl, items, (item) => buildTile(item, items));
+    gridEl.dataset.grid = String(gridSize);
+    const dupeMap = prefDupes ? buildDupeMap(mediaItems) : null;
+    fillGridProgressively(gridEl, items, (item) => buildTile(item, items, dupeMap));
   }
 
   function renderFolderDetail() {
@@ -806,10 +1128,12 @@
 
     gridEl.hidden = false;
     emptyEl.hidden = true;
-    fillGridProgressively(gridEl, items, (item) => buildTile(item, items));
+    gridEl.dataset.grid = String(gridSize);
+    const dupeMap = prefDupes ? buildDupeMap(mediaItems) : null;
+    fillGridProgressively(gridEl, items, (item) => buildTile(item, items, dupeMap));
   }
 
-  function buildTile(item, contextList) {
+  function buildTile(item, contextList, dupeMap) {
     const tile = document.createElement('div');
     tile.className = 'tile'
       + (favorites.has(item.id) ? ' is-favorite' : '')
@@ -830,6 +1154,13 @@
       badge.className = 'video-badge';
       badge.innerHTML = `<svg class="icon"><use href="#icon-play"/></svg><span class="dur">${item.duration != null ? formatDuration(item.duration) : '--:--'}</span>`;
       tile.appendChild(badge);
+    }
+
+    if (dupeMap && (dupeMap.get(`${item.name}|${item.size}`) || 0) > 1) {
+      const dup = document.createElement('div');
+      dup.className = 'dup-badge';
+      dup.textContent = 'DUP';
+      tile.appendChild(dup);
     }
 
     const favBtn = document.createElement('button');
@@ -908,6 +1239,7 @@
     tileEl.classList.toggle('selected', selectedIds.has(id));
     syncTopbar();
     updateSelectionBar();
+    updateStatusBar();
   }
 
   function updateSelectionBar() {
@@ -948,9 +1280,8 @@
 
   selectRemoveBtn.addEventListener('click', () => {
     if (!selectedIds.size) return;
-    selectedIds.forEach((id) => removeItemCore(id));
-    saveFavorites();
-    reindexPositions();
+    const ids = Array.from(selectedIds);
+    removeItems(ids);
     setSelectMode(false);
   });
 
@@ -1304,6 +1635,61 @@
     });
   })();
 
+  /* --------------------------- Hold-to-select gesture -------------------------- */
+  // A long-press on any tile is an additional way into select mode (the
+  // explicit topbar button is the other), delegated once on #content rather
+  // than attached per-tile so it costs nothing extra as the grid grows.
+
+  (function enableHoldToSelect() {
+    const content = $('#content');
+    const HOLD_MS = 450;
+    const HOLD_DRIFT = 12;
+    let holdTimer = null, sx = 0, sy = 0, fired = false;
+
+    function begin(tile, x, y) {
+      sx = x; sy = y; fired = false;
+      holdTimer = setTimeout(() => {
+        holdTimer = null;
+        fired = true;
+        const id = tile.dataset.id;
+        if (!id) return;
+        try { navigator.vibrate && navigator.vibrate(12); } catch { /* noop */ }
+        if (!selectMode) setSelectMode(true);
+        selectedIds.add(id);
+        syncTopbar();
+        updateSelectionBar();
+        renderActive();
+      }, HOLD_MS);
+    }
+    function cancel() {
+      if (holdTimer) { clearTimeout(holdTimer); holdTimer = null; }
+    }
+
+    content.addEventListener('touchstart', (e) => {
+      if (e.touches.length !== 1) return;
+      const tile = e.target.closest('.tile');
+      if (!tile) return;
+      begin(tile, e.touches[0].clientX, e.touches[0].clientY);
+    }, { passive: true });
+
+    content.addEventListener('touchmove', (e) => {
+      if (!holdTimer || e.touches.length !== 1) { cancel(); return; }
+      const dx = Math.abs(e.touches[0].clientX - sx);
+      const dy = Math.abs(e.touches[0].clientY - sy);
+      if (dx > HOLD_DRIFT || dy > HOLD_DRIFT) cancel();
+    }, { passive: true });
+
+    content.addEventListener('touchend', cancel, { passive: true });
+    content.addEventListener('touchcancel', cancel, { passive: true });
+
+    // The tile a hold fired on gets replaced wholesale by the renderActive()
+    // re-render above, so the click that follows on touch devices would
+    // otherwise land on a fresh tile and immediately toggle it back off.
+    content.addEventListener('click', (e) => {
+      if (fired) { fired = false; e.stopPropagation(); e.preventDefault(); }
+    }, { capture: true });
+  })();
+
   /* -------------------------------- Lightbox ------------------------------------ */
   // The lightbox always uses the full-quality original (item.url) — only the
   // small grid/folder previews are downscaled. Photos support Apple-Photos-
@@ -1322,6 +1708,7 @@
     lightboxMedia.innerHTML = '';
     zoomEl = null;
     document.body.style.overflow = '';
+    exitFullscreenAndCinema();
   }
 
   function renderLightbox() {
@@ -1332,10 +1719,26 @@
     let el;
     if (item.type === 'photo') {
       el = document.createElement('img');
-      el.src = item.url;
       el.alt = item.name;
       el.className = 'zoomable';
       zoomEl = el;
+      // Progressive open: show the already-generated small thumbnail
+      // instantly (near-free — it's usually already cached from the grid),
+      // decode the full-resolution original in the background, then swap.
+      // A large photo can take a few hundred ms to decode; without this the
+      // stage would just sit blank for that whole stretch.
+      if (item.thumbUrl) {
+        el.src = item.thumbUrl;
+        const full = new Image();
+        full.decoding = 'async';
+        full.src = item.url;
+        const ready = full.decode ? full.decode() : new Promise((res) => { full.onload = res; full.onerror = res; });
+        ready.catch(() => {}).then(() => {
+          if (el.isConnected) el.src = item.url; // no-op if a newer render already replaced this element
+        });
+      } else {
+        el.src = item.url;
+      }
     } else {
       el = document.createElement('video');
       el.src = item.url;
@@ -1448,12 +1851,20 @@
     lightboxEl.classList.toggle('zoomed', zoom.scale > 1.02);
   }
 
+  function showZoomHud() {
+    zoomHud.textContent = `${Math.round(zoom.scale * 100)}%`;
+    zoomHud.classList.add('vis');
+    clearTimeout(hudTimer);
+    hudTimer = setTimeout(() => zoomHud.classList.remove('vis'), 1200);
+  }
+
   function resetZoomState(animate) {
     zoom = { scale: 1, x: 0, y: 0 };
     gesture = null;
     activePointers.clear();
     applyZoomTransform(animate);
     updateChromeForZoom();
+    zoomHud.classList.remove('vis');
   }
 
   function settleZoom() {
@@ -1463,6 +1874,7 @@
     zoom = { scale, x, y };
     applyZoomTransform(true);
     updateChromeForZoom();
+    showZoomHud();
   }
 
   function handleDoubleTap(clientX, clientY) {
@@ -1478,6 +1890,7 @@
     }
     applyZoomTransform(true);
     updateChromeForZoom();
+    showZoomHud();
   }
 
   function onPointerDown(e) {
@@ -1539,6 +1952,7 @@
       };
       applyZoomTransform(false);
       updateChromeForZoom();
+      showZoomHud();
     } else if (gesture === 'pan' && zoomEl) {
       const dx = e.clientX - panStartPointer.x;
       const dy = e.clientY - panStartPointer.y;
@@ -1585,6 +1999,79 @@
   lightboxStage.addEventListener('pointerup', onPointerUp);
   lightboxStage.addEventListener('pointercancel', onPointerUp);
 
+  // Desktop/trackpad: plain wheel (or ctrl/meta+wheel, matching OS pinch-to-
+  // zoom-on-trackpad conventions) zooms toward the cursor; a plain wheel
+  // while already zoomed in pans instead.
+  lightboxStage.addEventListener('wheel', (e) => {
+    if (!zoomEl) return;
+    e.preventDefault();
+    if (e.ctrlKey || e.metaKey || zoom.scale <= 1.01) {
+      const factor = Math.exp(-e.deltaY * (e.deltaMode === 1 ? 0.07 : 0.0028));
+      const targetScale = clamp(zoom.scale * factor, MIN_SCALE, MAX_SCALE);
+      const stageRect = lightboxStage.getBoundingClientRect();
+      const cx = e.clientX - (stageRect.left + stageRect.width / 2);
+      const cy = e.clientY - (stageRect.top + stageRect.height / 2);
+      const r = targetScale / zoom.scale;
+      const clamped = clampPan(targetScale, cx - (cx - zoom.x) * r, cy - (cy - zoom.y) * r);
+      zoom = { scale: targetScale, x: clamped.x, y: clamped.y };
+      applyZoomTransform(false);
+      updateChromeForZoom();
+      showZoomHud();
+    } else {
+      const clamped = clampPan(zoom.scale, zoom.x - e.deltaX, zoom.y - e.deltaY);
+      zoom = { ...zoom, x: clamped.x, y: clamped.y };
+      applyZoomTransform(false);
+    }
+  }, { passive: false });
+
+  /* ------------------------------ Fullscreen / cinema mode ------------------------------ */
+  // Native requestFullscreen when the platform allows it on an arbitrary
+  // element; a CSS-only "cinema" fallback (just hides the chrome, with its
+  // own explicit exit pill) when it doesn't — notably iOS Safari, which
+  // doesn't support fullscreening anything but <video>.
+
+  function isNativeFullscreen() {
+    return !!(document.fullscreenElement || document.webkitFullscreenElement);
+  }
+  function exitNativeFullscreen() {
+    try { (document.exitFullscreen || document.webkitExitFullscreen)?.call(document); } catch { /* noop */ }
+  }
+  function requestNativeFullscreen(el, onFail) {
+    const req = el.requestFullscreen || el.webkitRequestFullscreen;
+    if (!req) { onFail(); return; }
+    try {
+      const p = req.call(el);
+      if (p && p.catch) p.catch(() => onFail());
+    } catch {
+      onFail();
+    }
+  }
+  function setCinemaMode(on) {
+    cinemaMode = on;
+    lightboxEl.classList.toggle('cinema', on);
+    cinemaExit.hidden = !on;
+    lightboxFullscreen.classList.toggle('on', on);
+  }
+  function exitFullscreenAndCinema() {
+    if (cinemaMode) setCinemaMode(false);
+    if (isNativeFullscreen()) exitNativeFullscreen();
+  }
+
+  lightboxFullscreen.addEventListener('click', () => {
+    if (isNativeFullscreen()) { exitNativeFullscreen(); return; }
+    if (cinemaMode) { setCinemaMode(false); return; }
+    requestNativeFullscreen(lightboxEl, () => setCinemaMode(true));
+  });
+  cinemaExit.addEventListener('click', () => {
+    if (isNativeFullscreen()) exitNativeFullscreen();
+    else setCinemaMode(false);
+  });
+  function onNativeFullscreenChange() {
+    lightboxFullscreen.classList.toggle('on', isNativeFullscreen() || cinemaMode);
+  }
+  document.addEventListener('fullscreenchange', onNativeFullscreenChange);
+  document.addEventListener('webkitfullscreenchange', onNativeFullscreenChange);
+
   /* ------------------------------- Context menu -------------------------------- */
 
   function positionFloatingMenu(menuEl, anchorEl) {
@@ -1626,7 +2113,7 @@
       if (!id) return;
       if (action === 'favorite') toggleFavorite(id);
       else if (action === 'move') openMoveSheet([id]);
-      else if (action === 'remove') removeItem(id);
+      else if (action === 'remove') removeItems([id]);
       else if (action === 'info') openInfo(id);
     });
   });
@@ -1691,8 +2178,146 @@
   infoClose.addEventListener('click', closeInfo);
   infoSheetBackdrop.addEventListener('click', closeInfo);
 
+  /* -------------------------------- Settings panel -------------------------------- */
+
+  function toggleSettingsPanel(on) {
+    settingsPanel.hidden = !on;
+  }
+
+  settingsBtn.addEventListener('click', (e) => {
+    e.stopPropagation();
+    toggleSettingsPanel(settingsPanel.hidden);
+  });
+  document.addEventListener('click', (e) => {
+    if (!settingsPanel.hidden && !settingsPanel.contains(e.target) && e.target !== settingsBtn) {
+      toggleSettingsPanel(false);
+    }
+  });
+  document.addEventListener('keydown', (e) => {
+    if (e.key === 'Escape' && !settingsPanel.hidden) toggleSettingsPanel(false);
+  });
+
+  $$('.segmented-btn', gridSizeGroup).forEach((btn) => {
+    btn.addEventListener('click', () => {
+      gridSize = Number(btn.dataset.grid);
+      saveGridSizePref(gridSize);
+      applyGridSize();
+    });
+  });
+
+  prefExifToggle.addEventListener('change', () => {
+    prefExif = prefExifToggle.checked;
+    if (mediaItems.length) { sortMediaItems(); renderActive(); }
+  });
+  prefDupesToggle.addEventListener('change', () => {
+    prefDupes = prefDupesToggle.checked;
+    if (mediaItems.length) renderActive();
+  });
+
+  /* --------------------------------- Backup export/import -------------------------------- */
+  // A plain, readable JSON snapshot of favourites/folders/assignments only —
+  // never the photos/videos themselves (impossible to include even if we
+  // wanted to; File contents aren't something a page can bundle up). This is
+  // a manual belt-and-suspenders option alongside the automatic IndexedDB/
+  // localStorage persistence: something you can keep or move to another
+  // device by hand if automatic storage isn't available in a given
+  // environment. Import MERGES into whatever's already loaded — it never
+  // deletes or overwrites your existing folders/favourites.
+
+  function downloadTextFile(text, filename, mime) {
+    const blob = new Blob([text], { type: mime });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = filename;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    setTimeout(() => URL.revokeObjectURL(url), 2000);
+  }
+
+  exportBackupBtn.addEventListener('click', () => {
+    toggleSettingsPanel(false);
+    if (!folders.length && !favorites.size) {
+      showToast('Nothing to back up yet');
+      return;
+    }
+    const data = {
+      version: 1,
+      exportedAt: new Date().toISOString(),
+      favorites: Array.from(favorites),
+      folders: folders.map((f) => ({ id: f.id, name: f.name })),
+      assignments: { ...assignments },
+    };
+    downloadTextFile(
+      JSON.stringify(data, null, 2),
+      `photos-backup-${new Date().toISOString().slice(0, 10)}.json`,
+      'application/json',
+    );
+    showToast('Backup exported');
+  });
+
+  importBackupBtn.addEventListener('click', () => {
+    toggleSettingsPanel(false);
+    backupImport.click();
+  });
+
+  backupImport.addEventListener('change', async (e) => {
+    const file = e.target.files[0];
+    backupImport.value = '';
+    if (!file) return;
+    try {
+      const data = JSON.parse(await file.text());
+      if (!data || !Array.isArray(data.folders) || !Array.isArray(data.favorites) || typeof data.assignments !== 'object') {
+        throw new Error('Not a recognized backup file');
+      }
+      mergeBackup(data);
+    } catch (err) {
+      showToast('Import failed — not a valid backup file');
+    }
+  });
+
+  function mergeBackup(data) {
+    // Imported folder ids won't match local ones (they're per-session
+    // random), so folders are matched/merged by name — an existing local
+    // folder with the same name absorbs the imported items; otherwise a
+    // new local folder is created.
+    const idMap = new Map();
+    data.folders.forEach((f) => {
+      let local = folders.find((lf) => lf.name === f.name);
+      if (!local) {
+        local = { id: `f_${Date.now().toString(36)}${Math.random().toString(36).slice(2, 7)}`, name: f.name };
+        folders.push(local);
+      }
+      idMap.set(f.id, local.id);
+    });
+
+    let addedFav = 0;
+    data.favorites.forEach((id) => { if (!favorites.has(id)) { favorites.add(id); addedFav++; } });
+
+    Object.entries(data.assignments).forEach(([itemId, folderId]) => {
+      const localFolderId = idMap.get(folderId);
+      if (!localFolderId) return;
+      assignments[itemId] = localFolderId;
+    });
+
+    saveFolders();
+    saveFavorites();
+    saveAssignments();
+
+    // Patch already-loaded items so the import is visible immediately.
+    mediaItems.forEach((item) => {
+      const assigned = assignments[item.id];
+      if (assigned != null) item.folderId = assigned;
+    });
+    renderActive();
+
+    showToast(`Imported ${data.folders.length} folder${data.folders.length === 1 ? '' : 's'} · ${addedFav} new favourite${addedFav === 1 ? '' : 's'}`);
+  }
+
   /* ---------------------------------- Init --------------------------------------- */
 
+  applyGridSize();
   setActiveTab('all');   // paints the (currently always-empty) UI immediately
   hydrateFromStorage();  // fire-and-forget async load of favourites/folders/assignments
 })();
