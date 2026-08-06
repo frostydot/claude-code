@@ -1,0 +1,825 @@
+/* =========================================================================
+   Media Mover — wearing the Photos app's design language.
+
+   This is Media Mover's own markup and logic, restyled: one consistent art
+   style across every surface — same font, same spacing scale, same radii,
+   same icon set, same motion — and light/dark adaptive rather than
+   dark-only.
+
+   The class names and CSS custom-property names below are Media Mover's
+   originals on purpose: its JS writes `gallery.style.gridTemplateColumns`,
+   sets `viewer.style.animation = 'fIn ...'`, and injects
+   `color: var(--mut)` inline. Keeping the names means the logic keeps
+   working untouched; only the values changed.
+   ========================================================================= */
+
+:root {
+  /* Apple-style palette, mapped onto Media Mover's variable names */
+  --bg: #f5f5f7;
+  --surf: #ffffff;
+  --surf2: #ffffff;
+  --surf3: #e8e8ed;
+  --bdr: rgba(0, 0, 0, 0.08);
+  --bdr2: rgba(0, 0, 0, 0.14);
+  --acc: #0071e3;
+  --acc2: #5e5ce6;
+  --txt: #1d1d1f;
+  --mut: #86868b;
+  --red: #ff3b30;
+  --fav: #ff375f;
+  --fld: #34c759;
+
+  --blur-bg: rgba(255, 255, 255, 0.72);
+  /* Popovers/menus/toasts float over content, so they carry more opacity than
+     the bars do: `backdrop-filter` isn't reliably supported in embedded
+     WebViews, and without it a 0.72-alpha panel is unreadable over a photo
+     grid. This stays legible on its own and still frosts where supported. */
+  --popover: rgba(255, 255, 255, 0.95);
+  --scrim: rgba(0, 0, 0, 0.55);
+  --shadow-sm: 0 2px 10px rgba(0, 0, 0, 0.06);
+  --shadow-md: 0 8px 30px rgba(0, 0, 0, 0.12);
+
+  --r: 16px;
+  --rs: 10px;
+  --rl: 22px;
+  --pill: 980px;
+
+  --pad: 16px;
+  --safeTop: env(safe-area-inset-top, 0px);
+  --safeBot: env(safe-area-inset-bottom, 0px);
+  --tabH: 58px;
+
+  --ease: cubic-bezier(0.25, 0.1, 0.25, 1);
+  --mono: ui-monospace, 'SF Mono', Menlo, Consolas, monospace;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #000000;
+    --surf: #1c1c1e;
+    --surf2: #1c1c1e;
+    --surf3: #2c2c2e;
+    --bdr: rgba(255, 255, 255, 0.1);
+    --bdr2: rgba(255, 255, 255, 0.16);
+    --txt: #f5f5f7;
+    --mut: #98989d;
+    --blur-bg: rgba(28, 28, 30, 0.72);
+    --popover: rgba(38, 38, 40, 0.96);
+    --scrim: rgba(0, 0, 0, 0.75);
+    --shadow-sm: 0 2px 10px rgba(0, 0, 0, 0.3);
+    --shadow-md: 0 8px 30px rgba(0, 0, 0, 0.5);
+  }
+}
+
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+html { height: 100%; }
+body {
+  background: var(--bg);
+  color: var(--txt);
+  font-family: -apple-system, BlinkMacSystemFont, 'SF Pro Display', 'Segoe UI', Roboto, sans-serif;
+  -webkit-font-smoothing: antialiased;
+  min-height: 100%;
+  padding-bottom: calc(var(--safeBot) + var(--tabH));
+  -webkit-tap-highlight-color: transparent;
+  overscroll-behavior: none;
+}
+
+/* One icon set, drawn from a single sprite, used on every surface. */
+.icon {
+  width: 24px;
+  height: 24px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.8;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  display: block;
+  flex-shrink: 0;
+}
+.icon.fill { fill: currentColor; stroke: none; }
+
+/* ── Header ─────────────────────────────────────────────────────────────── */
+.hdr {
+  position: sticky; top: 0; z-index: 900;
+  background: var(--blur-bg);
+  backdrop-filter: blur(20px) saturate(1.6);
+  -webkit-backdrop-filter: blur(20px) saturate(1.6);
+  padding: calc(var(--safeTop) + 12px) var(--pad) 0;
+  border-bottom: 1px solid var(--bdr);
+}
+.hRow { display: flex; align-items: center; gap: 8px; padding-bottom: 10px; }
+.hNorm { display: flex; align-items: center; gap: 8px; flex: 1; min-width: 0; }
+.hNorm.off { display: none; }
+.hSel { display: none; align-items: center; gap: 6px; flex: 1; min-width: 0; }
+.hSel.on { display: flex; }
+
+.backBtn {
+  width: 40px; height: 40px; border-radius: 50%; flex-shrink: 0;
+  background: none; border: none; color: var(--acc);
+  cursor: pointer; font-family: inherit;
+  display: none; align-items: center; justify-content: center;
+  touch-action: manipulation;
+  transition: background 0.2s var(--ease), transform 0.15s var(--ease);
+}
+.backBtn:active { transform: scale(0.9); background: rgba(0, 113, 227, 0.12); }
+.backBtn.on { display: flex; }
+
+.logo { display: flex; align-items: center; gap: 9px; min-width: 0; flex-shrink: 1; }
+.logo.off { display: none; }
+.lIco {
+  width: 30px; height: 30px; flex-shrink: 0; border-radius: 8px;
+  background: linear-gradient(135deg, var(--acc), var(--acc2));
+  color: #fff;
+  display: flex; align-items: center; justify-content: center;
+  box-shadow: 0 3px 10px rgba(0, 113, 227, 0.3);
+}
+.lIco .icon { width: 18px; height: 18px; }
+h1 {
+  font-size: 22px; font-weight: 700; letter-spacing: -0.02em;
+  white-space: nowrap;
+}
+h1 span { color: var(--acc); }
+
+.hFTitle {
+  font-size: 22px; font-weight: 700; letter-spacing: -0.02em;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  display: none; flex: 1;
+}
+.hFTitle.on { display: block; }
+
+.selCancelBtn, .selAllBtn {
+  height: 44px; padding: 0 6px; flex-shrink: 0;
+  background: none; border: none; color: var(--acc);
+  font-size: 15px; font-weight: 600; font-family: inherit;
+  cursor: pointer; touch-action: manipulation; white-space: nowrap;
+}
+.selCancelBtn:active, .selAllBtn:active { opacity: 0.6; }
+.selCountLbl { flex: 1; text-align: center; font-size: 15px; font-weight: 600; }
+
+.hBtns { display: flex; gap: 4px; align-items: center; flex-shrink: 0; }
+.iBtn {
+  width: 44px; height: 44px; border-radius: 50%;
+  background: none; border: none;
+  display: flex; align-items: center; justify-content: center;
+  cursor: pointer; user-select: none; color: var(--acc);
+  transition: background 0.2s var(--ease), transform 0.15s var(--ease);
+  flex-shrink: 0;
+}
+.iBtn:active { transform: scale(0.9); background: rgba(0, 113, 227, 0.12); }
+.iBtn.on { background: rgba(0, 113, 227, 0.16); }
+
+.topbar { padding-bottom: 12px; }
+.pickBtn {
+  width: 100%; display: flex; align-items: center; justify-content: center; gap: 7px;
+  padding: 13px 18px; background: var(--acc); border: none; border-radius: var(--pill);
+  color: #fff; font-size: 15px; font-weight: 600; font-family: inherit; cursor: pointer;
+  transition: transform 0.15s var(--ease), filter 0.15s var(--ease);
+  touch-action: manipulation;
+}
+.pickBtn:active { transform: scale(0.96); filter: brightness(1.08); }
+.pickBtn .icon { width: 19px; height: 19px; }
+
+/* ── Settings panel ─────────────────────────────────────────────────────── */
+.sWrap { position: relative; }
+#sPanel {
+  position: absolute; right: 0; top: calc(100% + 6px);
+  background: var(--popover);
+  border: 1px solid var(--bdr);
+  backdrop-filter: blur(24px) saturate(1.8); -webkit-backdrop-filter: blur(24px) saturate(1.8);
+  border-radius: var(--r); padding: 8px; display: none;
+  width: 264px; z-index: 1001; box-shadow: var(--shadow-md);
+  max-height: 72vh; overflow-y: auto; scrollbar-width: thin;
+  animation: popIn 0.16s var(--ease) both;
+}
+.sTit {
+  font-size: 10.5px; font-weight: 700; letter-spacing: 0.06em; text-transform: uppercase;
+  color: var(--mut); padding: 10px 8px 6px;
+}
+.sTit:first-child { padding-top: 4px; }
+.sRow {
+  display: flex; align-items: center; justify-content: space-between; gap: 8px;
+  font-size: 13.5px; padding: 9px 8px; border-radius: var(--rs); cursor: pointer;
+}
+.sRow:active { background: rgba(127, 127, 127, 0.1); }
+.sLbl { display: flex; align-items: center; gap: 9px; color: var(--txt); }
+.sIc { display: flex; align-items: center; color: var(--mut); flex-shrink: 0; }
+.sIc .icon { width: 17px; height: 17px; }
+
+.tog { position: relative; width: 40px; height: 24px; flex-shrink: 0; }
+.tog input { opacity: 0; width: 0; height: 0; position: absolute; }
+.togT {
+  position: absolute; inset: 0; background: var(--surf3);
+  border-radius: var(--pill); border: 1px solid var(--bdr);
+  transition: background 0.18s var(--ease), border-color 0.18s var(--ease);
+}
+.togK {
+  position: absolute; top: 3px; left: 3px; width: 16px; height: 16px;
+  background: #fff; border-radius: 50%;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.3);
+  transition: transform 0.18s var(--ease);
+}
+.tog input:checked ~ .togT { background: var(--acc); border-color: var(--acc); }
+.tog input:checked ~ .togK { transform: translateX(16px); }
+
+.sGRow { display: flex; gap: 3px; padding: 0 4px 6px; }
+.sGBtn {
+  flex: 1; padding: 7px 4px; border-radius: 8px; border: 1px solid var(--bdr);
+  background: var(--surf3); color: var(--mut); font-size: 12px; font-weight: 500;
+  font-family: inherit; cursor: pointer; text-align: center; touch-action: manipulation;
+  transition: background 0.12s var(--ease), color 0.12s var(--ease), border-color 0.12s var(--ease);
+}
+.sGBtn.on {
+  background: rgba(0, 113, 227, 0.16); border-color: var(--acc);
+  color: var(--acc); font-weight: 700;
+}
+
+.sActBtn {
+  display: flex; align-items: center; gap: 9px;
+  width: 100%; padding: 10px 8px; border-radius: var(--rs);
+  background: transparent; border: none; color: var(--txt);
+  font-size: 13.5px; font-family: inherit; cursor: pointer; touch-action: manipulation;
+  transition: background 0.1s var(--ease);
+}
+.sActBtn:active { background: rgba(127, 127, 127, 0.1); }
+.sActBtn .sIc { width: 20px; justify-content: center; }
+
+.sHint {
+  margin-top: 4px; padding: 8px 8px 2px; font-size: 11.5px;
+  color: var(--mut); line-height: 1.5; border-top: 1px solid var(--bdr);
+}
+
+/* ── Status bar ─────────────────────────────────────────────────────────── */
+.statBar {
+  display: flex; align-items: center; gap: 9px;
+  margin: 10px var(--pad) 0; padding: 9px 13px;
+  background: var(--surf); border: 1px solid var(--bdr);
+  border-radius: var(--r); font-size: 13px; color: var(--mut); min-height: 40px;
+  box-shadow: var(--shadow-sm);
+  transition: border-color 0.2s var(--ease);
+}
+.statBar.has { color: var(--txt); }
+.stIco { display: flex; align-items: center; color: var(--mut); flex-shrink: 0; }
+.stIco .icon { width: 16px; height: 16px; }
+.stTxt { flex: 1; }
+.stBadge {
+  font-family: var(--mono); font-size: 11px; font-weight: 600;
+  padding: 3px 8px; background: var(--surf3);
+  border-radius: var(--pill); color: var(--mut); white-space: nowrap;
+}
+
+/* ── Gallery ────────────────────────────────────────────────────────────── */
+.gWrap { padding: 12px var(--pad) 0; }
+.grid { display: grid; gap: 3px; grid-template-columns: repeat(auto-fill, minmax(104px, 1fr)); }
+
+.tile {
+  position: relative; border-radius: var(--rs); overflow: hidden;
+  background: var(--surf3); border: none; cursor: pointer;
+  touch-action: manipulation;
+  contain: content;
+  /* Offscreen tiles are skipped entirely by layout/paint — on a 1000-item
+     grid this cuts rendering work to just the visible screenful. The fixed
+     aspect-ratio lets size containment work without scroll jumping. */
+  aspect-ratio: 1 / 1;
+  content-visibility: auto;
+  contain-intrinsic-size: auto 140px;
+  animation: tileIn 0.32s var(--ease) both;
+  transition: transform 0.15s var(--ease);
+}
+.tile:active { transform: scale(0.97); }
+.tile:hover .ovl { opacity: 1; }
+.tile.selected { box-shadow: inset 0 0 0 3px var(--acc); }
+.tile.selected::after {
+  content: ''; position: absolute; inset: 0;
+  background: rgba(0, 113, 227, 0.18); pointer-events: none;
+}
+@keyframes tileIn {
+  from { opacity: 0; transform: scale(0.94); }
+  to { opacity: 1; transform: scale(1); }
+}
+
+.tImg {
+  width: 100%; aspect-ratio: 1/1; object-fit: cover; display: block;
+  user-select: none; -webkit-user-drag: none;
+  opacity: 0; transition: opacity 0.25s var(--ease);
+}
+.tImg.loaded { opacity: 1; }
+
+.ovl {
+  position: absolute; inset: 0; pointer-events: none; opacity: 0;
+  background: linear-gradient(to top, rgba(0, 0, 0, 0.45) 0%, transparent 55%);
+  transition: opacity 0.15s var(--ease);
+}
+
+/* Photos don't need a badge announcing they're photos — only video, which
+   genuinely changes what tapping the tile does, is worth marking. */
+.badge {
+  position: absolute; left: 4px; bottom: 4px;
+  display: flex; align-items: center; gap: 3px;
+  font-size: 11px; font-weight: 600;
+  padding: 3px 7px; border-radius: var(--pill);
+  backdrop-filter: blur(6px); pointer-events: none;
+}
+.bImg { display: none; }
+.bVid { background: rgba(0, 0, 0, 0.5); color: #fff; }
+
+.bDup {
+  position: absolute; top: 4px; right: 4px; font-size: 10px; font-weight: 700;
+  letter-spacing: 0.03em; padding: 3px 7px; border-radius: var(--pill);
+  background: rgba(255, 59, 48, 0.82); color: #fff; pointer-events: none;
+  backdrop-filter: blur(6px);
+}
+.favSt {
+  position: absolute; bottom: 5px; right: 5px;
+  display: flex; align-items: center; justify-content: center;
+  color: var(--fav); pointer-events: none;
+  filter: drop-shadow(0 1px 3px rgba(0, 0, 0, 0.45));
+}
+.favSt .icon { width: 17px; height: 17px; fill: var(--fav); stroke: var(--fav); }
+.fldSt {
+  position: absolute; top: 5px; left: 5px;
+  display: flex; align-items: center; justify-content: center;
+  width: 22px; height: 22px; border-radius: 50%;
+  background: rgba(0, 0, 0, 0.42); backdrop-filter: blur(6px);
+  color: #fff; pointer-events: none;
+}
+.fldSt .icon { width: 13px; height: 13px; }
+.plIco {
+  position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%);
+  width: 34px; height: 34px;
+  background: rgba(0, 0, 0, 0.42); border-radius: 50%;
+  backdrop-filter: blur(6px);
+  display: flex; align-items: center; justify-content: center; pointer-events: none;
+}
+.plIco svg { width: 12px; height: 12px; fill: #fff; margin-left: 2px; }
+
+.tCheck {
+  position: absolute; top: 6px; right: 6px;
+  width: 24px; height: 24px; border-radius: 50%;
+  border: 2px solid rgba(255, 255, 255, 0.85); background: rgba(0, 0, 0, 0.25);
+  display: none; align-items: center; justify-content: center;
+  backdrop-filter: blur(4px); pointer-events: none;
+  transition: background 0.12s var(--ease), border-color 0.12s var(--ease), transform 0.12s var(--ease);
+}
+.selMode .tCheck { display: flex; }
+.tile.selected .tCheck { background: var(--acc); border-color: var(--acc); transform: scale(1.05); }
+.tile.selected .tCheck::after {
+  content: ''; width: 11px; height: 6px;
+  border-left: 2.5px solid #fff; border-bottom: 2.5px solid #fff;
+  transform: rotate(-45deg) translate(1px, -1px);
+}
+
+/* ── Empty state ────────────────────────────────────────────────────────── */
+.empty, .fvEmpty {
+  display: flex; flex-direction: column; align-items: center; justify-content: center;
+  padding: 64px 32px; text-align: center; gap: 8px;
+  animation: fadeUp 0.35s var(--ease) both;
+}
+@keyframes fadeUp {
+  from { opacity: 0; transform: translateY(14px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+.eIco { color: var(--mut); opacity: 0.5; margin-bottom: 8px; }
+.eIco .icon { width: 52px; height: 52px; stroke-width: 1.3; }
+.eTit { font-size: 19px; font-weight: 600; color: var(--txt); }
+.eHint { font-size: 15px; color: var(--mut); line-height: 1.5; max-width: 280px; }
+
+/* ── Folder list view ───────────────────────────────────────────────────── */
+.folderView { display: none; padding: 12px var(--pad) 0; }
+.folderView.on { display: block; }
+
+.fvTopRow { display: flex; gap: 8px; margin-bottom: 12px; }
+.fvTopBtn {
+  flex: 1; padding: 11px 8px; border-radius: var(--r);
+  background: var(--surf); border: 1px solid var(--bdr);
+  color: var(--txt); font-size: 13.5px; font-weight: 500; font-family: inherit; cursor: pointer;
+  display: flex; align-items: center; justify-content: center; gap: 7px;
+  box-shadow: var(--shadow-sm);
+  transition: transform 0.15s var(--ease); touch-action: manipulation;
+}
+.fvTopBtn:active { transform: scale(0.97); }
+.fvTopBtn .icon { width: 17px; height: 17px; }
+.fvTopBtn.grn { color: var(--fld); }
+.fvTopBtn.acc { color: var(--acc); }
+
+.fvNew {
+  width: 100%; display: flex; align-items: center; gap: 10px;
+  padding: 14px 16px; border-radius: var(--r);
+  background: var(--surf); border: 1.5px dashed var(--bdr2);
+  color: var(--acc); font-size: 15px; font-weight: 500; font-family: inherit; cursor: pointer;
+  transition: background 0.12s var(--ease), border-color 0.12s var(--ease);
+  touch-action: manipulation; margin-bottom: 12px;
+}
+.fvNew:active { background: var(--surf3); border-color: var(--acc); }
+.fvNew .icon { width: 19px; height: 19px; }
+
+#fvCards { display: grid; grid-template-columns: repeat(2, 1fr); gap: var(--pad); }
+
+.fCard {
+  position: relative;
+  display: flex; flex-direction: column; align-items: center;
+  padding: var(--pad) 8px; border-radius: var(--rl);
+  background: var(--surf);
+  border: 1px solid var(--bdr);
+  box-shadow: var(--shadow-sm);
+  cursor: pointer; touch-action: manipulation;
+  transition: transform 0.18s var(--ease), box-shadow 0.18s var(--ease);
+  animation: tileIn 0.32s var(--ease) both;
+}
+.fCard:active { transform: scale(0.97); box-shadow: var(--shadow-md); }
+
+/* Up to three of the folder's newest items, fanned out like a spread deck
+   of cards. */
+.fcArc {
+  position: relative; width: 100%; height: 108px;
+  display: flex; align-items: center; justify-content: center;
+  margin-bottom: 12px; flex-shrink: 0;
+}
+.fcArcImg {
+  position: absolute; width: 62px; height: 82px; border-radius: 8px;
+  object-fit: cover; background: var(--surf3);
+  border: 3px solid var(--surf);
+  box-shadow: 0 3px 10px rgba(0, 0, 0, 0.18);
+  opacity: 0; transition: opacity 0.25s var(--ease);
+  transform-origin: bottom center;
+}
+.fcArcImg.loaded { opacity: 1; }
+.fcArc.n1 .fcArcImg { transform: none; z-index: 2; }
+.fcArc.n2 .fcArcImg:nth-child(1) { transform: rotate(-9deg)  translateX(-16px); z-index: 1; }
+.fcArc.n2 .fcArcImg:nth-child(2) { transform: rotate(9deg)   translateX(16px);  z-index: 2; }
+.fcArc.n3 .fcArcImg:nth-child(1) { transform: rotate(-13deg) translateX(-28px); z-index: 1; }
+.fcArc.n3 .fcArcImg:nth-child(2) { transform: rotate(0deg)   translateY(-4px);  z-index: 3; }
+.fcArc.n3 .fcArcImg:nth-child(3) { transform: rotate(13deg)  translateX(28px);  z-index: 2; }
+.fcArcIco { color: var(--mut); opacity: 0.4; display: flex; }
+.fcArcIco .icon { width: 44px; height: 44px; }
+
+.fcName {
+  font-size: 15px; font-weight: 600; text-align: center;
+  max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.fcMeta { font-size: 12.5px; color: var(--mut); margin-top: 2px; text-align: center; }
+
+.fcMoreBtn {
+  position: absolute; top: 8px; right: 8px;
+  width: 30px; height: 30px; border-radius: 50%; flex-shrink: 0;
+  background: none; border: none; color: var(--mut);
+  cursor: pointer; display: flex; align-items: center; justify-content: center;
+  font-family: inherit; touch-action: manipulation;
+  transition: background 0.15s var(--ease), transform 0.15s var(--ease);
+}
+.fcMoreBtn:active { transform: scale(0.85); background: rgba(127, 127, 127, 0.15); }
+.fcMoreBtn .icon { width: 16px; height: 16px; }
+
+/* ── Tab bar ────────────────────────────────────────────────────────────── */
+.tabBar {
+  position: fixed; bottom: 0; left: 0; right: 0;
+  height: calc(var(--tabH) + var(--safeBot));
+  padding-bottom: var(--safeBot);
+  background: var(--blur-bg);
+  backdrop-filter: blur(20px) saturate(1.6); -webkit-backdrop-filter: blur(20px) saturate(1.6);
+  border-top: 1px solid var(--bdr);
+  display: flex; align-items: stretch;
+  z-index: 800;
+  transition: transform 0.22s var(--ease);
+}
+.tabBar.hidden { transform: translateY(100%); pointer-events: none; }
+
+.tab {
+  flex: 1; display: flex; flex-direction: column;
+  align-items: center; justify-content: center; gap: 3px;
+  background: none; border: none; color: var(--mut);
+  font-family: inherit; cursor: pointer; touch-action: manipulation;
+  transition: color 0.18s var(--ease); padding: 6px 2px 3px; position: relative;
+}
+.tab.on { color: var(--acc); }
+.tab.on .icon { transform: translateY(-1px) scale(1.05); }
+.tab:active .icon { transform: scale(0.88); }
+.tab .tIco { display: flex; }
+.tab .tIco .icon { width: 25px; height: 25px; transition: transform 0.18s var(--ease); }
+.tab .tLbl { font-size: 10.5px; font-weight: 600; letter-spacing: -0.01em; }
+.tab[data-tab="fav"].on { color: var(--fav); }
+.tab[data-tab="fav"].on .icon { fill: var(--fav); stroke: var(--fav); }
+.tab .tDot {
+  position: absolute; top: 6px; right: calc(50% - 15px);
+  width: 6px; height: 6px; border-radius: 50%;
+  background: var(--fld); display: none;
+}
+.tab .tDot.on { display: block; }
+
+/* ── Multi-select action bar ────────────────────────────────────────────── */
+.actBar {
+  position: fixed; bottom: 0; left: 0; right: 0;
+  height: calc(var(--tabH) + var(--safeBot));
+  padding-bottom: var(--safeBot);
+  background: var(--blur-bg);
+  backdrop-filter: blur(20px) saturate(1.6); -webkit-backdrop-filter: blur(20px) saturate(1.6);
+  border-top: 1px solid var(--bdr);
+  display: none; align-items: stretch; z-index: 820;
+}
+.actBar.on { display: flex; }
+.actBtn {
+  flex: 1; display: flex; flex-direction: column;
+  align-items: center; justify-content: center; gap: 3px;
+  background: none; border: none; color: var(--acc);
+  font-family: inherit; cursor: pointer; touch-action: manipulation;
+  padding: 6px 2px 3px;
+  transition: opacity 0.12s var(--ease);
+}
+.actBtn:active { opacity: 0.6; }
+.actBtn:disabled { opacity: 0.35; pointer-events: none; }
+.actBtn .icon { width: 25px; height: 25px; }
+.actBtn .aLbl { font-size: 10.5px; font-weight: 600; }
+.actBtn.red { color: var(--red); }
+.actBtn.grn { color: var(--fld); }
+
+/* ── Viewer ─────────────────────────────────────────────────────────────── */
+.viewer {
+  position: fixed; inset: 0; background: #000;
+  display: none; flex-direction: column; z-index: 2000;
+  padding-top: var(--safeTop);
+}
+.viewer.open { display: flex; }
+.vTop {
+  display: flex; align-items: center; justify-content: space-between;
+  padding: 8px 8px; gap: 8px; flex-shrink: 0;
+  transition: opacity 0.16s var(--ease);
+}
+.vBtn {
+  height: 44px; min-width: 44px; padding: 0 10px;
+  background: none; border: none; border-radius: 50%;
+  color: #fff; font-size: 15px; font-weight: 600; font-family: inherit; cursor: pointer;
+  display: flex; align-items: center; justify-content: center; gap: 5px;
+  white-space: nowrap; user-select: none; touch-action: manipulation;
+  transition: background 0.15s var(--ease), transform 0.15s var(--ease);
+}
+.vBtn:active { transform: scale(0.9); background: rgba(255, 255, 255, 0.14); }
+.vBtn.favOn { color: var(--fav); }
+.vBtn.favOn .icon { fill: var(--fav); stroke: var(--fav); }
+.vNavBtn { width: 44px; padding: 0; }
+.vNavBtn:disabled { opacity: 0.25; pointer-events: none; }
+.vBR { display: flex; gap: 2px; align-items: center; }
+.vCtr { font-size: 13px; font-weight: 600; color: rgba(255, 255, 255, 0.7); min-width: 52px; text-align: center; }
+
+.vStage {
+  flex: 1; display: flex; justify-content: center; align-items: center;
+  overflow: hidden; touch-action: none; position: relative; min-height: 0;
+}
+#vCon { width: 100%; height: 100%; display: flex; justify-content: center; align-items: center; }
+#zImg {
+  max-width: 100%; max-height: 100%; display: block;
+  will-change: transform;
+  backface-visibility: hidden; -webkit-backface-visibility: hidden;
+  transform-origin: center center;
+  user-select: none; -webkit-user-drag: none; cursor: grab;
+  border-radius: 4px;
+}
+#zImg.pan { cursor: grabbing; }
+#vVid { max-width: 100%; max-height: 100%; border-radius: 4px; display: block; }
+
+#zHUD {
+  position: absolute; top: 10px; left: 50%; transform: translateX(-50%);
+  background: rgba(0, 0, 0, 0.6); border: 1px solid rgba(255, 255, 255, 0.14);
+  backdrop-filter: blur(10px); color: #fff; font-family: var(--mono); font-size: 12px;
+  font-weight: 600; padding: 5px 13px; border-radius: var(--pill);
+  pointer-events: none; opacity: 0; transition: opacity 0.25s var(--ease);
+  white-space: nowrap; z-index: 4;
+}
+#zHUD.vis { opacity: 1; }
+
+/* Zoom controls collapse to a small frosted pill and expand to − % + */
+#zTab {
+  position: absolute; bottom: 14px; right: 14px; z-index: 4;
+  display: flex; align-items: center; flex-direction: row-reverse;
+  background: rgba(255, 255, 255, 0.14); border: 1px solid rgba(255, 255, 255, 0.16);
+  backdrop-filter: blur(14px); -webkit-backdrop-filter: blur(14px);
+  border-radius: var(--pill); overflow: hidden;
+}
+#zTabBtn {
+  width: 40px; height: 40px; flex-shrink: 0;
+  background: transparent; border: none; color: rgba(255, 255, 255, 0.9);
+  cursor: pointer; display: flex; align-items: center; justify-content: center;
+  transition: transform 0.25s var(--ease), color 0.15s var(--ease);
+  touch-action: manipulation;
+}
+#zTabBtn .icon { width: 18px; height: 18px; }
+#zTab.open #zTabBtn { transform: rotate(90deg); color: #fff; }
+#zCtrls {
+  display: flex; align-items: center;
+  max-width: 0; opacity: 0;
+  transition: max-width 0.28s var(--ease), opacity 0.18s var(--ease);
+}
+#zTab.open #zCtrls { max-width: 150px; opacity: 1; }
+.zbBtn {
+  width: 38px; height: 38px; border-radius: 50%; background: transparent; border: none;
+  color: #fff; font-size: 19px; cursor: pointer; font-family: inherit; line-height: 1;
+  display: flex; align-items: center; justify-content: center;
+  transition: background 0.12s var(--ease); touch-action: manipulation; flex-shrink: 0;
+}
+.zbBtn:active { background: rgba(255, 255, 255, 0.18); }
+.zbBtn:disabled { opacity: 0.3; pointer-events: none; }
+#zLvl {
+  font-family: var(--mono); font-size: 11px; font-weight: 600;
+  color: rgba(255, 255, 255, 0.85); min-width: 46px; text-align: center;
+  background: transparent; border: none; cursor: pointer; padding: 0 2px;
+  height: 38px; touch-action: manipulation; flex-shrink: 0;
+}
+#zLvl:active { color: #fff; }
+
+#cinemaExit {
+  position: absolute; bottom: 16px; left: 50%; transform: translateX(-50%);
+  background: rgba(255, 255, 255, 0.16); border: 1px solid rgba(255, 255, 255, 0.18);
+  color: #fff; font-size: 13px; font-weight: 500; font-family: inherit;
+  padding: 10px 20px; border-radius: var(--pill); cursor: pointer;
+  backdrop-filter: blur(12px); z-index: 5; display: none; white-space: nowrap;
+  align-items: center; gap: 7px;
+  user-select: none; touch-action: manipulation;
+}
+#cinemaExit .icon { width: 15px; height: 15px; }
+.viewer.cinema #cinemaExit { display: flex; animation: slUp 0.25s var(--ease) both; }
+.viewer.cinema #zTab { bottom: 80px; }
+.viewer.cinema .vTop, .viewer.cinema .vInfo { opacity: 0; pointer-events: none; }
+
+.vInfo {
+  padding: 10px 16px calc(14px + var(--safeBot));
+  display: flex; justify-content: space-between; align-items: center;
+  gap: 12px; flex-shrink: 0;
+  transition: opacity 0.16s var(--ease);
+}
+.vIN { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 14px; font-weight: 600; color: #fff; flex: 1; }
+.vIS { font-size: 12.5px; color: rgba(255, 255, 255, 0.55); flex-shrink: 0; }
+
+/* ── Context menu ───────────────────────────────────────────────────────── */
+/* Dimmed modal backdrop shared by the item context menu (#ctx) and the
+   folder options menu (#fldCtx) — only one of the two is ever open, so
+   both simply toggle the same overlay to keep focus on the menu itself. */
+#ctxBackdrop {
+  position: fixed; inset: 0; z-index: 2999;
+  background: var(--scrim);
+  opacity: 0; pointer-events: none;
+  transition: opacity 0.2s var(--ease);
+}
+#ctxBackdrop.show { opacity: 1; pointer-events: auto; }
+
+#ctx, #fldCtx {
+  position: fixed; left: 0; top: 0;
+  background: var(--popover);
+  backdrop-filter: blur(24px) saturate(1.8); -webkit-backdrop-filter: blur(24px) saturate(1.8);
+  border: 1px solid var(--bdr);
+  border-radius: var(--r); padding: 6px; display: none;
+  z-index: 3000; min-width: 210px;
+  box-shadow: var(--shadow-md);
+  transform: translate(-9999px, -9999px);
+}
+
+/* The two most common things you'd do with a photo get a large 2-up icon
+   grid, one tap away, with everything else demoted to the list below. */
+.ctxBigRow { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; padding: 4px 4px 8px; }
+.ctxBig {
+  display: flex; flex-direction: column; align-items: center; justify-content: center;
+  gap: 7px; padding: 16px 8px; border-radius: 14px;
+  background: var(--surf3); border: none;
+  color: var(--txt); font-family: inherit; cursor: pointer;
+  transition: background 0.12s var(--ease), transform 0.1s var(--ease);
+  touch-action: manipulation;
+}
+.ctxBig:active { transform: scale(0.96); }
+.ctxBig .cIco { width: auto; display: flex; }
+.ctxBig .cIco .icon { width: 24px; height: 24px; }
+.ctxBig .cbLbl { font-size: 12.5px; font-weight: 600; text-align: center; }
+.ctxBig.grn { color: var(--fld); }
+.ctxBig.ctxFavOn { color: var(--fav); }
+.ctxBig.ctxFavOn .icon { fill: var(--fav); stroke: var(--fav); }
+
+.cBtn {
+  width: 100%; text-align: left; padding: 11px 12px; border-radius: var(--rs);
+  background: transparent; border: none; color: var(--txt);
+  font-size: 15px; font-weight: 500; font-family: inherit; cursor: pointer;
+  display: flex; align-items: center; gap: 10px;
+  transition: background 0.1s var(--ease); touch-action: manipulation;
+}
+.cBtn:active { background: rgba(127, 127, 127, 0.15); }
+.cBtn.red { color: var(--red); }
+.cBtn.grn { color: var(--fld); }
+.cDiv { height: 1px; background: var(--bdr); margin: 4px 0; }
+.cIco { width: 20px; display: flex; align-items: center; justify-content: center; flex-shrink: 0; color: var(--mut); }
+.cIco .icon { width: 18px; height: 18px; }
+.cBtn.red .cIco, .cBtn.grn .cIco { color: inherit; }
+
+#fldCtx { min-width: 264px; }
+
+/* Folder icons stay emoji — that's user-chosen content, not app chrome. */
+.emojiPickerRow { padding: 6px 8px 8px; border-bottom: 1px solid var(--bdr); margin-bottom: 4px; }
+.emojiPickerLabel {
+  font-size: 10.5px; font-weight: 700; letter-spacing: 0.06em; text-transform: uppercase;
+  color: var(--mut); margin-bottom: 7px; display: block;
+}
+.emojiGrid { display: grid; grid-template-columns: repeat(7, 1fr); gap: 3px; }
+.emojiBtn {
+  width: 100%; aspect-ratio: 1/1; border-radius: 8px; border: 1.5px solid transparent;
+  background: var(--surf3); font-size: 17px; cursor: pointer;
+  display: flex; align-items: center; justify-content: center;
+  transition: background 0.1s var(--ease), border-color 0.1s var(--ease);
+  touch-action: manipulation; line-height: 1;
+}
+.emojiBtn:active { background: rgba(127, 127, 127, 0.2); }
+.emojiBtn.active { border-color: var(--acc); background: rgba(0, 113, 227, 0.14); }
+
+/* ── Folder picker sheet ────────────────────────────────────────────────── */
+#fldPicker {
+  position: fixed; inset: 0; z-index: 4000;
+  background: var(--scrim);
+  display: none; align-items: flex-end; justify-content: center;
+}
+#fldPicker.open { display: flex; animation: fIn 0.2s var(--ease) both; }
+.fpBox {
+  background: var(--surf); border: none;
+  border-radius: 20px 20px 0 0; width: 100%; max-width: 500px;
+  padding: 8px var(--pad) calc(var(--pad) + var(--safeBot));
+  box-shadow: var(--shadow-md);
+  animation: sheetUp 0.28s var(--ease) both; max-height: 72vh; display: flex; flex-direction: column;
+}
+/* Grabber, matching every other sheet in the app */
+.fpBox::before {
+  content: ''; display: block; width: 36px; height: 5px; flex-shrink: 0;
+  border-radius: var(--pill); background: var(--bdr2);
+  margin: 8px auto 14px;
+}
+.fpTit {
+  font-size: 18px; font-weight: 700; color: var(--txt);
+  padding: 0 2px 12px; flex-shrink: 0;
+}
+.fpScroll { overflow-y: auto; flex: 1; scrollbar-width: thin; }
+.fpItem {
+  display: flex; align-items: center; gap: 10px;
+  padding: 12px 8px; border-radius: var(--rs); cursor: pointer;
+  font-size: 15px; font-weight: 500; transition: background 0.1s var(--ease); touch-action: manipulation;
+}
+.fpItem:active { background: rgba(127, 127, 127, 0.15); }
+.fpItem .fpN { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.fpItem .fpC { font-size: 12.5px; color: var(--mut); }
+.fpNew {
+  display: flex; align-items: center; gap: 10px;
+  padding: 12px 8px; border-radius: var(--rs); cursor: pointer;
+  font-size: 15px; font-weight: 500; color: var(--acc);
+  border-top: 1px solid var(--bdr); margin-top: 4px;
+  transition: background 0.1s var(--ease); touch-action: manipulation; flex-shrink: 0;
+}
+.fpNew:active { background: rgba(0, 113, 227, 0.1); }
+.fpNew .icon { width: 19px; height: 19px; }
+.fpCancel {
+  width: 100%; padding: 13px; margin-top: 8px; flex-shrink: 0;
+  background: var(--surf3); border: none; border-radius: var(--pill);
+  color: var(--txt); font-size: 15px; font-weight: 600; font-family: inherit;
+  cursor: pointer; touch-action: manipulation;
+  transition: transform 0.15s var(--ease), filter 0.15s var(--ease);
+}
+.fpCancel:active { transform: scale(0.96); filter: brightness(0.95); }
+
+/* ── Toast ──────────────────────────────────────────────────────────────── */
+#toast {
+  position: fixed; bottom: calc(var(--safeBot) + var(--tabH) + 14px); left: 50%;
+  transform: translateX(-50%) translateY(8px);
+  background: var(--popover);
+  backdrop-filter: blur(24px) saturate(1.8); -webkit-backdrop-filter: blur(24px) saturate(1.8);
+  border: 1px solid var(--bdr);
+  color: var(--txt); padding: 10px 18px; border-radius: var(--pill);
+  font-size: 13.5px; font-weight: 500; z-index: 5000;
+  display: flex; align-items: center; gap: 14px;
+  opacity: 0; pointer-events: none; transition: opacity 0.2s var(--ease), transform 0.2s var(--ease);
+  white-space: nowrap; box-shadow: var(--shadow-md);
+  max-width: calc(100% - 32px);
+}
+#toast.show { opacity: 1; pointer-events: auto; transform: translateX(-50%) translateY(0); }
+.toastAct {
+  background: none; border: none; color: var(--acc);
+  font-size: 13.5px; font-weight: 700; font-family: inherit; cursor: pointer;
+  padding: 4px 2px; touch-action: manipulation;
+}
+.toastAct:active { opacity: 0.6; }
+
+/* ── Animations ─────────────────────────────────────────────────────────── */
+/* fIn / fOut are referenced by name from app.js (viewer.style.animation). */
+@keyframes fIn  { from { opacity: 0; } to { opacity: 1; } }
+@keyframes fOut { from { opacity: 1; } to { opacity: 0; } }
+@keyframes sIn  { from { opacity: 0; transform: scale(0.92) translateY(-4px); } to { opacity: 1; transform: scale(1) translateY(0); } }
+@keyframes popIn { from { opacity: 0; transform: scale(0.92) translateY(-4px); } to { opacity: 1; transform: scale(1) translateY(0); } }
+@keyframes sheetUp { from { transform: translateY(100%); } to { transform: translateY(0); } }
+@keyframes slUp { from { opacity: 0; transform: translateX(-50%) translateY(10px); } to { opacity: 1; transform: translateX(-50%) translateY(0); } }
+.sIn { animation: sIn 0.16s var(--ease) both; }
+
+/* ── Responsive ─────────────────────────────────────────────────────────── */
+@media (min-width: 720px) {
+  #fvCards { grid-template-columns: repeat(3, 1fr); }
+  .grid { gap: 4px; }
+}
+
+@media (max-width: 360px) {
+  h1, .hFTitle { font-size: 19px; }
+  #sPanel { width: 232px; }
+  .fcArc { height: 92px; }
+  .fcArcImg { width: 54px; height: 72px; }
+  .fcArc.n2 .fcArcImg:nth-child(1) { transform: rotate(-9deg)  translateX(-13px); }
+  .fcArc.n2 .fcArcImg:nth-child(2) { transform: rotate(9deg)   translateX(13px); }
+  .fcArc.n3 .fcArcImg:nth-child(1) { transform: rotate(-13deg) translateX(-22px); }
+  .fcArc.n3 .fcArcImg:nth-child(2) { transform: rotate(0deg)   translateY(-4px); }
+  .fcArc.n3 .fcArcImg:nth-child(3) { transform: rotate(13deg)  translateX(22px); }
+}
