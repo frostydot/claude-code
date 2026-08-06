@@ -3,33 +3,44 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-<meta name="theme-color" content="#000000">
+<meta name="theme-color" content="#0c0c0e">
 <title>Photos</title>
 <style>
 /* =========================================================================
    Photos — a single consistent art style is shared by every tab & surface:
    same font, same spacing scale, same radii, same icon set, same motion.
+
+   Visual language: dark glass surfaces, a blue/green/gold accent trio, and
+   emoji glyphs for every icon — modeled on a reference app's look, ported
+   over onto this app's own (more capable) persistence/thumbnail/gesture
+   engine underneath. See README for what was and wasn't carried over.
    ========================================================================= */
 
 :root {
-  --bg-primary: #f5f5f7;
-  --bg-elevated: #ffffff;
-  --bg-tile: #e8e8ed;
-  --text-primary: #1d1d1f;
-  --text-secondary: #86868b;
-  --accent: #0071e3;
-  --danger: #ff3b30;
-  --favorite: #ff375f;
-  --border: rgba(0, 0, 0, 0.08);
-  --shadow-sm: 0 2px 10px rgba(0, 0, 0, 0.06);
-  --shadow-md: 0 8px 30px rgba(0, 0, 0, 0.12);
-  --blur-bg: rgba(255, 255, 255, 0.72);
-  --overlay-scrim: rgba(0, 0, 0, 0.55);
+  --bg-primary: #0c0c0e;
+  --bg-elevated: #1e1e23;
+  --bg-tile: #17171a;
+  --bg-surf3: #252529;
+  --text-primary: #e8e8ec;
+  --text-secondary: rgba(232, 232, 236, 0.42);
+  --accent: #4f8aff;
+  --accent2: #7b5ea7;
+  --danger: #ff5f5f;
+  --favorite: #ffcc00;
+  --folder-accent: #3ecf8e;
+  --border: rgba(255, 255, 255, 0.07);
+  --border2: rgba(255, 255, 255, 0.13);
+  --shadow-sm: 0 2px 10px rgba(0, 0, 0, 0.3);
+  --shadow-md: 0 20px 60px rgba(0, 0, 0, 0.65);
+  --blur-bg: rgba(12, 12, 14, 0.93);
+  --panel-bg: rgba(22, 22, 28, 0.96);
+  --overlay-scrim: rgba(0, 0, 0, 0.72);
+  --mono: ui-monospace, 'SF Mono', 'Cascadia Mono', Menlo, Consolas, monospace;
 
-  --radius-sm: 10px;
-  --radius-md: 16px;
-  --radius-lg: 22px;
-  --radius-pill: 980px;
+  --radius-sm: 9px;
+  --radius-md: 14px;
+  --radius-lg: 16px;
+  --radius-pill: 999px;
 
   --space-xs: 4px;
   --space-sm: 8px;
@@ -37,24 +48,9 @@
   --space-lg: 24px;
   --space-xl: 48px;
 
-  --ease: cubic-bezier(0.25, 0.1, 0.25, 1);
+  --ease: cubic-bezier(0.22, 0.68, 0, 1.1);
   --tabbar-h: 82px;
   --topbar-h: 56px;
-}
-
-@media (prefers-color-scheme: dark) {
-  :root {
-    --bg-primary: #000000;
-    --bg-elevated: #1c1c1e;
-    --bg-tile: #2c2c2e;
-    --text-primary: #f5f5f7;
-    --text-secondary: #98989d;
-    --border: rgba(255, 255, 255, 0.1);
-    --shadow-sm: 0 2px 10px rgba(0, 0, 0, 0.3);
-    --shadow-md: 0 8px 30px rgba(0, 0, 0, 0.5);
-    --blur-bg: rgba(28, 28, 30, 0.72);
-    --overlay-scrim: rgba(0, 0, 0, 0.75);
-  }
 }
 
 * { box-sizing: border-box; }
@@ -73,7 +69,7 @@ body {
   margin: 0;
   background: var(--bg-primary);
   color: var(--text-primary);
-  font-family: -apple-system, BlinkMacSystemFont, 'SF Pro Display', 'Segoe UI', Roboto, sans-serif;
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif;
   -webkit-font-smoothing: antialiased;
   overflow: hidden;
 }
@@ -87,19 +83,10 @@ button {
   -webkit-tap-highlight-color: transparent;
 }
 
-.icon {
-  width: 24px;
-  height: 24px;
-  fill: none;
-  stroke: currentColor;
-  stroke-width: 1.8;
-  stroke-linecap: round;
-  stroke-linejoin: round;
-  display: block;
-}
-/* icons that read better filled */
-#icon-play, #icon-dots { stroke: none; fill: currentColor; }
-.icon use[href="#icon-play"], svg use[href="#icon-play"] {}
+/* Emoji icons everywhere — one consistent glyph per concept, no separate
+   icon set to keep in sync. Sized via font-size on the element that hosts
+   them (buttons, badges, empty states) rather than a shared class. */
+.emoji-icon { font-style: normal; line-height: 1; }
 
 #app {
   height: 100%;
@@ -120,50 +107,83 @@ button {
   align-items: center;
   justify-content: space-between;
   background: var(--blur-bg);
-  backdrop-filter: blur(20px) saturate(1.6);
-  -webkit-backdrop-filter: blur(20px) saturate(1.6);
+  backdrop-filter: blur(20px);
+  -webkit-backdrop-filter: blur(20px);
   border-bottom: 1px solid var(--border);
   flex-shrink: 0;
   z-index: 20;
   position: relative;
+  gap: var(--space-sm);
 }
 
-.topbar h1 {
-  font-size: 22px;
-  font-weight: 700;
-  letter-spacing: -0.02em;
-  margin: 0;
+.topbar-title-wrap {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  min-width: 0;
+  flex-shrink: 1;
 }
 
-.topbar-actions { display: flex; gap: var(--space-xs); }
-
-.icon-btn {
-  width: 40px;
-  height: 40px;
-  min-width: 44px;
-  min-height: 44px;
+.topbar-logo {
+  width: 30px;
+  height: 30px;
+  flex-shrink: 0;
+  border-radius: 8px;
+  font-size: 14px;
+  background: linear-gradient(135deg, var(--accent), var(--accent2));
+  box-shadow: 0 4px 12px rgba(79, 138, 255, 0.26);
   display: flex;
   align-items: center;
   justify-content: center;
-  border-radius: 50%;
-  transition: background 0.2s var(--ease), transform 0.15s var(--ease);
-  color: var(--accent);
 }
-.icon-btn:active { transform: scale(0.9); background: rgba(0, 113, 227, 0.12); }
+
+.topbar h1 {
+  font-size: 17px;
+  font-weight: 600;
+  letter-spacing: -0.02em;
+  margin: 0;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.topbar-actions { display: flex; gap: 5px; flex-shrink: 0; align-items: center; }
+
+.icon-btn {
+  width: 36px;
+  height: 36px;
+  min-width: 36px;
+  min-height: 36px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: var(--radius-sm);
+  background: var(--bg-elevated);
+  border: 1px solid var(--border2);
+  font-size: 15px;
+  transition: background 0.15s var(--ease), border-color 0.15s var(--ease), box-shadow 0.15s var(--ease), transform 0.1s var(--ease);
+  color: var(--text-primary);
+}
+.icon-btn:active { transform: scale(0.92); background: var(--bg-tile); }
 .icon-btn.hidden-btn { display: none; }
+.icon-btn.on { background: rgba(79, 138, 255, 0.18); border-color: var(--accent); box-shadow: 0 0 0 1px rgba(79, 138, 255, 0.3); }
 
 .text-btn {
   color: var(--accent);
-  font-size: 15px;
+  font-size: 13.5px;
   font-weight: 600;
-  padding: 8px 6px;
-  min-height: 44px;
+  padding: 0 11px;
+  height: 36px;
+  border-radius: var(--radius-sm);
+  background: var(--bg-elevated);
+  border: 1px solid var(--border2);
   display: flex;
   align-items: center;
   white-space: nowrap;
 }
-.text-btn:active { opacity: 0.6; }
+.text-btn:active { opacity: 0.7; }
 .text-btn.hidden-btn { display: none; }
+#selectAllBtn { background: transparent; border-color: transparent; color: var(--accent); }
 
 /* --------------------------- Status bar ---------------------------------- */
 
@@ -171,22 +191,24 @@ button {
   display: flex;
   align-items: center;
   gap: var(--space-sm);
-  margin: var(--space-sm) var(--space-md) 0;
+  margin: 10px var(--space-md) 0;
   padding: 9px 13px;
-  background: var(--bg-elevated);
+  background: var(--bg-tile);
   border: 1px solid var(--border);
   border-radius: var(--radius-md);
   font-size: 13px;
   color: var(--text-secondary);
   flex-shrink: 0;
+  min-height: 40px;
 }
 .status-text { flex: 1; }
 .status-badge {
-  font-family: ui-monospace, 'SF Mono', Menlo, Consolas, monospace;
+  font-family: var(--mono);
   font-size: 11px;
-  font-weight: 600;
-  padding: 3px 8px;
-  background: var(--bg-tile);
+  font-weight: 500;
+  padding: 2px 8px;
+  background: var(--bg-elevated);
+  border: 1px solid var(--border2);
   border-radius: var(--radius-pill);
   color: var(--text-secondary);
   white-space: nowrap;
@@ -203,10 +225,10 @@ button {
   width: 260px;
   max-height: 72vh;
   overflow-y: auto;
-  background: var(--blur-bg);
-  backdrop-filter: blur(24px) saturate(1.8);
-  -webkit-backdrop-filter: blur(24px) saturate(1.8);
-  border: 1px solid var(--border);
+  background: var(--panel-bg);
+  backdrop-filter: blur(24px);
+  -webkit-backdrop-filter: blur(24px);
+  border: 1px solid var(--border2);
   border-radius: var(--radius-md);
   box-shadow: var(--shadow-md);
   padding: 8px;
@@ -215,25 +237,27 @@ button {
 }
 
 .settings-title {
-  font-size: 10.5px;
-  font-weight: 700;
-  letter-spacing: 0.06em;
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.07em;
   text-transform: uppercase;
   color: var(--text-secondary);
   padding: 10px 8px 6px;
+  border-bottom: 1px solid var(--border);
+  margin-bottom: 4px;
 }
 .settings-title:first-child { padding-top: 4px; }
 
 .segmented {
   display: flex;
-  gap: 3px;
-  padding: 0 4px 6px;
+  gap: 4px;
+  padding: 4px 4px 8px;
 }
 .segmented-btn {
   flex: 1;
   padding: 7px 4px;
-  border-radius: 8px;
-  border: 1px solid var(--border);
+  border-radius: 7px;
+  border: 1px solid var(--border2);
   background: var(--bg-tile);
   color: var(--text-secondary);
   font-size: 12px;
@@ -242,7 +266,7 @@ button {
   transition: background 0.12s var(--ease), color 0.12s var(--ease), border-color 0.12s var(--ease);
 }
 .segmented-btn.active {
-  background: rgba(0, 113, 227, 0.16);
+  background: rgba(79, 138, 255, 0.18);
   border-color: var(--accent);
   color: var(--accent);
   font-weight: 700;
@@ -257,7 +281,7 @@ button {
   border-radius: var(--radius-sm);
   font-size: 13.5px;
 }
-.settings-row:active { background: rgba(127, 127, 127, 0.1); }
+.settings-row:active { background: rgba(255, 255, 255, 0.04); }
 
 .toggle { position: relative; width: 40px; height: 24px; flex-shrink: 0; }
 .toggle input { position: absolute; opacity: 0; width: 0; height: 0; }
@@ -265,9 +289,9 @@ button {
   position: absolute;
   inset: 0;
   background: var(--bg-tile);
-  border: 1px solid var(--border);
+  border: 1px solid var(--border2);
   border-radius: var(--radius-pill);
-  transition: background 0.18s var(--ease), border-color 0.18s var(--ease);
+  transition: background 0.2s var(--ease), border-color 0.2s var(--ease);
 }
 .toggle-knob {
   position: absolute;
@@ -276,12 +300,11 @@ button {
   width: 16px;
   height: 16px;
   border-radius: 50%;
-  background: #fff;
-  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.3);
-  transition: transform 0.18s var(--ease);
+  background: rgba(255, 255, 255, 0.3);
+  transition: transform 0.2s var(--ease), background 0.2s var(--ease);
 }
 .toggle input:checked ~ .toggle-track { background: var(--accent); border-color: var(--accent); }
-.toggle input:checked ~ .toggle-knob { transform: translateX(16px); }
+.toggle input:checked ~ .toggle-knob { transform: translateX(16px); background: #fff; }
 
 .settings-action {
   display: flex;
@@ -293,13 +316,13 @@ button {
   font-size: 13.5px;
   color: var(--text-primary);
 }
-.settings-action:active { background: rgba(127, 127, 127, 0.1); }
-.settings-action .icon { width: 17px; height: 17px; color: var(--text-secondary); flex-shrink: 0; }
+.settings-action:active { background: rgba(255, 255, 255, 0.05); }
+.settings-action .emoji-icon { font-size: 14px; width: 20px; text-align: center; opacity: 0.85; flex-shrink: 0; }
 
 .settings-hint {
   margin: 4px 0 0;
   padding: 8px 8px 2px;
-  font-size: 11.5px;
+  font-size: 12px;
   line-height: 1.5;
   color: var(--text-secondary);
   border-top: 1px solid var(--border);
@@ -335,7 +358,7 @@ button {
 .tile-grid {
   display: grid;
   grid-template-columns: repeat(3, 1fr);
-  gap: 3px;
+  gap: 5px;
 }
 /* Grid density, adjustable via Settings → Display (defaults to Medium = the
    original 3-across). Column count, not a fixed px size, so it stays
@@ -347,10 +370,11 @@ button {
 .tile {
   position: relative;
   aspect-ratio: 1 / 1;
-  border-radius: var(--radius-sm);
+  border-radius: var(--radius-md);
   overflow: hidden;
   background: var(--bg-tile);
-  animation: tileIn 0.32s var(--ease) both;
+  border: 2.5px solid transparent;
+  animation: tileIn 0.28s var(--ease) both;
   /* Offscreen tiles skip layout/paint entirely — on a huge grid this cuts
      rendering work to roughly what's actually on screen. contain-intrinsic-size
      just needs to be in the right ballpark since aspect-ratio governs the
@@ -358,9 +382,10 @@ button {
   content-visibility: auto;
   contain-intrinsic-size: auto 140px;
 }
+.tile.selected { border-color: var(--accent); }
 
 @keyframes tileIn {
-  from { opacity: 0; transform: scale(0.94); }
+  from { opacity: 0; transform: scale(0.96); }
   to { opacity: 1; transform: scale(1); }
 }
 
@@ -372,11 +397,25 @@ button {
   pointer-events: none;
 }
 
+/* A soft shimmer placeholder shows behind every tile until its thumbnail is
+   ready, so the grid never looks broken while thumbnails generate lazily. */
+.tile::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(90deg, var(--bg-tile) 25%, var(--bg-elevated) 50%, var(--bg-tile) 75%);
+  background-size: 200% 100%;
+  animation: shimmer 1.2s infinite;
+}
+.tile:has(.tile-thumb.loaded)::before,
+.tile:has(.thumb-fallback)::before { display: none; }
+@keyframes shimmer { from { background-position: 200% 0; } to { background-position: -200% 0; } }
+
 /* Thumbnails fade in once their lazily-generated preview lands, rather than
    popping in — and sit on the --bg-tile placeholder color until then. */
 .tile-thumb {
   opacity: 0;
-  transition: opacity 0.25s var(--ease);
+  transition: opacity 0.22s var(--ease);
 }
 .tile-thumb.loaded { opacity: 1; }
 
@@ -390,9 +429,10 @@ button {
   justify-content: center;
   background: var(--bg-tile);
   color: var(--text-secondary);
+  font-size: 34px;
+  opacity: 0.5;
   animation: fadeUp 0.3s var(--ease) both;
 }
-.thumb-fallback .icon { width: 34%; height: 34%; opacity: 0.4; }
 
 .tile .video-badge {
   position: absolute;
@@ -401,27 +441,28 @@ button {
   display: flex;
   align-items: center;
   gap: 3px;
-  background: rgba(0, 0, 0, 0.5);
+  background: rgba(123, 94, 167, 0.88);
   color: #fff;
   padding: 3px 7px 3px 5px;
   border-radius: var(--radius-pill);
-  font-size: 11px;
+  font-size: 10.5px;
   font-weight: 600;
+  font-family: var(--mono);
   backdrop-filter: blur(6px);
 }
-.tile .video-badge .icon { width: 12px; height: 12px; }
+.tile .video-badge .emoji-icon { font-size: 10px; }
 
 .tile .dup-badge {
   position: absolute;
   right: var(--space-xs);
   bottom: var(--space-xs);
-  background: rgba(255, 59, 48, 0.82);
+  background: rgba(255, 95, 95, 0.88);
   color: #fff;
   padding: 3px 7px;
-  border-radius: var(--radius-pill);
-  font-size: 10px;
+  border-radius: 5px;
+  font-size: 9.5px;
   font-weight: 700;
-  letter-spacing: 0.03em;
+  letter-spacing: 0.04em;
   backdrop-filter: blur(6px);
 }
 
@@ -429,41 +470,40 @@ button {
   position: absolute;
   top: 4px;
   left: 4px;
-  width: 28px;
-  height: 28px;
+  width: 26px;
+  height: 26px;
   display: flex;
   align-items: center;
   justify-content: center;
   border-radius: 50%;
-  background: rgba(0, 0, 0, 0.38);
+  background: rgba(0, 0, 0, 0.4);
   backdrop-filter: blur(6px);
   color: #fff;
+  font-size: 13px;
   opacity: 0;
   transition: opacity 0.2s var(--ease), transform 0.15s var(--ease);
 }
-.tile .fav-btn .icon { width: 16px; height: 16px; }
 .tile:hover .fav-btn, .tile.is-favorite .fav-btn { opacity: 1; }
 .tile.is-favorite .fav-btn { color: var(--favorite); }
-.tile.is-favorite .fav-btn .icon { fill: var(--favorite); stroke: var(--favorite); }
 .tile .fav-btn:active { transform: scale(0.85); }
 
 .tile .menu-btn {
   position: absolute;
   top: 4px;
   right: 4px;
-  width: 28px;
-  height: 28px;
+  width: 26px;
+  height: 26px;
   display: flex;
   align-items: center;
   justify-content: center;
   border-radius: 50%;
-  background: rgba(0, 0, 0, 0.38);
+  background: rgba(0, 0, 0, 0.4);
   backdrop-filter: blur(6px);
   color: #fff;
+  font-size: 14px;
   opacity: 0;
   transition: opacity 0.2s var(--ease), transform 0.15s var(--ease);
 }
-.tile .menu-btn .icon { width: 15px; height: 15px; }
 .tile:hover .menu-btn, .tile.menu-open .menu-btn { opacity: 1; }
 .tile .menu-btn:active { transform: scale(0.85); }
 
@@ -478,34 +518,34 @@ button {
   position: absolute;
   top: 6px;
   right: 6px;
-  width: 24px;
-  height: 24px;
+  width: 22px;
+  height: 22px;
   border-radius: 50%;
-  border: 2px solid rgba(255, 255, 255, 0.85);
-  background: rgba(0, 0, 0, 0.25);
+  border: 2px solid rgba(255, 255, 255, 0.75);
+  background: rgba(0, 0, 0, 0.32);
   align-items: center;
   justify-content: center;
   color: transparent;
-  transition: background 0.15s var(--ease), border-color 0.15s var(--ease), transform 0.12s var(--ease);
+  font-size: 11px;
+  font-weight: 700;
+  backdrop-filter: blur(4px);
+  transition: background 0.12s var(--ease), border-color 0.12s var(--ease);
 }
-.select-indicator .icon { width: 15px; height: 15px; stroke-width: 3; }
 .tile.selected .select-indicator {
   background: var(--accent);
   border-color: var(--accent);
   color: #fff;
-  transform: scale(1.05);
 }
 
 body.select-mode .tile .fav-btn,
 body.select-mode .tile .menu-btn { display: none; }
 body.select-mode .tile .select-indicator { display: flex; }
 
-.tile.selected { box-shadow: inset 0 0 0 3px var(--accent); }
 .tile.selected::after {
   content: '';
   position: absolute;
   inset: 0;
-  background: rgba(0, 113, 227, 0.18);
+  background: rgba(79, 138, 255, 0.14);
   pointer-events: none;
 }
 
@@ -526,25 +566,25 @@ body.select-mode .tile .select-indicator { display: flex; }
   from { opacity: 0; transform: translateY(14px); }
   to { opacity: 1; transform: translateY(0); }
 }
-.empty-state .icon {
-  width: 52px;
-  height: 52px;
-  stroke-width: 1.3;
-  color: var(--text-secondary);
-  opacity: 0.5;
+.empty-state .emoji-icon {
+  font-size: 52px;
+  opacity: 0.28;
   margin-bottom: var(--space-md);
+  display: block;
 }
 .empty-state h3 {
   margin: 0 0 var(--space-xs);
-  font-size: 19px;
-  font-weight: 600;
+  font-size: 16px;
+  font-weight: 500;
   color: var(--text-primary);
+  opacity: 0.85;
 }
 .empty-state p {
   margin: 0 0 var(--space-md);
-  font-size: 15px;
+  font-size: 13px;
   max-width: 280px;
-  line-height: 1.5;
+  line-height: 1.55;
+  color: var(--text-secondary);
 }
 .empty-state .btn-primary { margin-top: var(--space-sm); }
 
@@ -554,12 +594,13 @@ body.select-mode .tile .select-indicator { display: flex; }
   background: var(--accent);
   color: #fff;
   padding: 12px 26px;
-  border-radius: var(--radius-pill);
-  font-weight: 600;
+  border-radius: var(--radius-md);
+  font-weight: 500;
   font-size: 15px;
-  transition: transform 0.15s var(--ease), filter 0.15s var(--ease);
+  box-shadow: 0 4px 20px rgba(79, 138, 255, 0.22);
+  transition: opacity 0.15s var(--ease), transform 0.1s var(--ease);
 }
-.btn-primary:active { transform: scale(0.96); filter: brightness(1.08); }
+.btn-primary:active { opacity: 0.85; transform: scale(0.98); }
 
 /* -------------------------------- Tab bar --------------------------------- */
 
@@ -568,9 +609,9 @@ body.select-mode .tile .select-indicator { display: flex; }
   left: 0; right: 0; bottom: 0;
   display: flex;
   padding-bottom: env(safe-area-inset-bottom);
-  background: var(--blur-bg);
-  backdrop-filter: blur(20px) saturate(1.6);
-  -webkit-backdrop-filter: blur(20px) saturate(1.6);
+  background: rgba(12, 12, 14, 0.96);
+  backdrop-filter: blur(20px);
+  -webkit-backdrop-filter: blur(20px);
   border-top: 1px solid var(--border);
   z-index: 20;
 }
@@ -582,91 +623,94 @@ body.select-mode .tile .select-indicator { display: flex; }
   align-items: center;
   justify-content: center;
   gap: 3px;
-  padding: 9px 2px 8px;
+  padding: 6px 2px 3px;
   min-height: 58px;
   color: var(--text-secondary);
-  transition: color 0.18s var(--ease);
+  transition: color 0.15s var(--ease);
 }
-.tab-btn .icon { width: 25px; height: 25px; transition: transform 0.18s var(--ease); }
-.tab-btn span { font-size: 10.5px; font-weight: 600; letter-spacing: -0.01em; }
+.tab-btn .emoji-icon { font-size: 20px; }
+.tab-btn span { font-size: 10px; font-weight: 500; letter-spacing: 0.01em; }
 .tab-btn.active { color: var(--accent); }
-.tab-btn.active .icon { transform: translateY(-1px) scale(1.05); }
-.tab-btn:active .icon { transform: scale(0.88); }
 .tab-btn[data-tab="favorites"].active { color: var(--favorite); }
 
 /* Selection action bar reuses .tab-btn styling for its 3 buttons */
-.tab-btn:disabled { opacity: 0.35; pointer-events: none; }
+.tab-btn:disabled { opacity: 0.3; pointer-events: none; }
 .tab-btn.danger-tab { color: var(--danger); }
+.tab-btn.folder-tab { color: var(--folder-accent); }
 .tab-btn.is-favorite { color: var(--favorite); }
-.tab-btn.is-favorite .icon { fill: var(--favorite); stroke: var(--favorite); }
 
 /* -------------------------------- Folders --------------------------------- */
 
 .folder-grid {
   display: grid;
   grid-template-columns: repeat(2, 1fr);
-  gap: var(--space-md);
+  gap: 12px;
 }
 
 .folder-card {
   position: relative;
-  background: var(--bg-elevated);
+  background: linear-gradient(165deg, var(--bg-surf3), var(--bg-tile));
   border: 1px solid var(--border);
   border-radius: var(--radius-lg);
-  box-shadow: var(--shadow-sm);
-  padding: var(--space-md) var(--space-sm) var(--space-md);
+  padding: 20px 10px 14px;
   display: flex;
   flex-direction: column;
   align-items: center;
-  transition: transform 0.18s var(--ease), box-shadow 0.18s var(--ease);
-  animation: tileIn 0.32s var(--ease) both;
+  transition: background 0.12s var(--ease), border-color 0.12s var(--ease), transform 0.1s var(--ease);
+  animation: tileIn 0.28s var(--ease) both;
 }
-.folder-card:active { transform: scale(0.97); box-shadow: var(--shadow-md); }
+.folder-card:active { background: var(--bg-elevated); border-color: var(--border2); transform: scale(0.97); }
 
 .folder-menu-btn {
   position: absolute;
-  top: 10px;
-  right: 10px;
-  width: 30px;
-  height: 30px;
+  top: 8px;
+  right: 8px;
+  width: 28px;
+  height: 28px;
   display: flex;
   align-items: center;
   justify-content: center;
   border-radius: 50%;
-  color: var(--text-secondary);
-  transition: background 0.15s var(--ease), transform 0.15s var(--ease);
+  background: rgba(0, 0, 0, 0.3);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  color: #fff;
+  font-size: 14px;
+  transition: background 0.1s var(--ease);
 }
-.folder-menu-btn:active { transform: scale(0.85); background: rgba(127, 127, 127, 0.15); }
-.folder-menu-btn .icon { width: 16px; height: 16px; }
+.folder-menu-btn:active { background: rgba(0, 0, 0, 0.55); }
 
 .folder-fan {
   position: relative;
   width: 100%;
-  height: 108px;
-  margin-bottom: var(--space-md);
+  height: 100px;
+  margin-bottom: 12px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
 }
 
 .folder-fan .fan-card {
   position: absolute;
-  top: 6px;
-  left: 50%;
-  width: 62px;
-  height: 82px;
-  border-radius: 8px;
+  width: 76px;
+  height: 76px;
+  border-radius: 15px;
   overflow: hidden;
-  background: var(--bg-tile);
-  border: 3px solid var(--bg-elevated);
-  box-shadow: 0 3px 10px rgba(0, 0, 0, 0.18);
-  transform-origin: bottom center;
+  background: var(--bg-elevated);
+  border: 3px solid var(--bg-surf3);
+  box-shadow: 0 8px 18px rgba(0, 0, 0, 0.42);
+  transform-origin: center center;
   /* deck spread — cards fanned out like a hand of cards, position set via JS */
-  transform: translateX(-50%) translateX(var(--dx, 0px)) rotate(var(--rot, 0deg));
+  transform: rotate(var(--rot, 0deg)) translate(var(--dx, 0px), 0);
 }
 .folder-fan .fan-card img {
   width: 100%;
   height: 100%;
   object-fit: cover;
   display: block;
+  opacity: 0;
+  transition: opacity 0.25s var(--ease);
 }
+.folder-fan .fan-card img.loaded { opacity: 1; }
 
 .folder-icon-empty {
   width: 100%;
@@ -675,12 +719,13 @@ body.select-mode .tile .select-indicator { display: flex; }
   align-items: center;
   justify-content: center;
   color: var(--text-secondary);
+  font-size: 34px;
+  opacity: 0.5;
 }
-.folder-icon-empty .icon { width: 44px; height: 44px; opacity: 0.4; }
 
 .folder-name {
-  font-size: 15px;
-  font-weight: 600;
+  font-size: 16px;
+  font-weight: 700;
   text-align: center;
   max-width: 100%;
   overflow: hidden;
@@ -688,9 +733,10 @@ body.select-mode .tile .select-indicator { display: flex; }
   white-space: nowrap;
 }
 .folder-count {
-  font-size: 12.5px;
+  font-size: 12px;
   color: var(--text-secondary);
-  margin-top: 2px;
+  margin-top: 4px;
+  font-family: var(--mono);
 }
 
 /* --------------------------- Folder detail view ---------------------------- */
@@ -700,18 +746,18 @@ body.select-mode .tile .select-indicator { display: flex; }
   align-items: center;
   gap: 2px;
   color: var(--accent);
-  font-size: 17px;
-  font-weight: 400;
+  font-size: 15px;
+  font-weight: 500;
   padding: var(--space-xs) 0;
   margin-bottom: var(--space-xs);
 }
-.back-btn .icon { width: 22px; height: 22px; }
+.back-btn .emoji-icon { font-size: 17px; }
 .back-btn:active { opacity: 0.6; }
 
 .folder-detail-title {
-  font-size: 26px;
+  font-size: 22px;
   font-weight: 700;
-  letter-spacing: -0.02em;
+  letter-spacing: -0.01em;
   margin: 0 0 var(--space-md);
 }
 
@@ -720,11 +766,12 @@ body.select-mode .tile .select-indicator { display: flex; }
 .lightbox {
   position: fixed;
   inset: 0;
-  background: #000;
+  background: rgba(7, 7, 9, 0.97);
   z-index: 100;
   display: flex;
   flex-direction: column;
-  animation: fadeIn 0.22s var(--ease) both;
+  padding-top: env(safe-area-inset-top);
+  animation: fadeIn 0.2s var(--ease) both;
 }
 @keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }
 
@@ -732,16 +779,17 @@ body.select-mode .tile .select-indicator { display: flex; }
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding: env(safe-area-inset-top) var(--space-sm) var(--space-sm);
+  padding: 10px 12px;
+  gap: 8px;
+  border-bottom: 1px solid var(--border);
   flex-shrink: 0;
   transition: opacity 0.16s var(--ease);
 }
-.icon-btn.light { color: #fff; }
-.icon-btn.light.is-favorite { color: var(--favorite); }
-.icon-btn.light.is-favorite .icon { fill: var(--favorite); stroke: var(--favorite); }
-.icon-btn.light.on { color: var(--accent); }
-.lightbox-counter { color: rgba(255,255,255,0.7); font-size: 13px; font-weight: 600; }
-.lightbox-header-actions { display: flex; gap: var(--space-xs); }
+.icon-btn.light { background: var(--bg-elevated); border-color: var(--border); color: #fff; }
+.icon-btn.light.is-favorite { color: var(--favorite); border-color: rgba(255, 204, 0, 0.4); background: rgba(255, 204, 0, 0.08); }
+.icon-btn.light.on { background: rgba(79, 138, 255, 0.18); border-color: var(--accent); color: var(--accent); }
+.lightbox-counter { color: var(--text-secondary); font-size: 12px; font-family: var(--mono); }
+.lightbox-header-actions { display: flex; gap: 5px; }
 
 .lightbox-stage {
   flex: 1;
@@ -758,14 +806,14 @@ body.select-mode .tile .select-indicator { display: flex; }
   display: flex;
   align-items: center;
   justify-content: center;
-  animation: mediaIn 0.24s var(--ease) both;
+  animation: mediaIn 0.22s var(--ease) both;
 }
 @keyframes mediaIn { from { opacity: 0; transform: scale(0.97); } to { opacity: 1; transform: scale(1); } }
 .lightbox-media img, .lightbox-media video {
   max-width: 100%;
   max-height: 100%;
   object-fit: contain;
-  border-radius: 4px;
+  border-radius: var(--radius-sm);
 }
 
 /* Pinch-to-zoom / pan target — see the pointer-driven zoom controller in
@@ -791,21 +839,22 @@ body.select-mode .tile .select-indicator { display: flex; }
   position: absolute;
   top: 50%;
   transform: translateY(-50%);
-  width: 44px;
-  height: 44px;
-  border-radius: 50%;
-  background: rgba(255, 255, 255, 0.12);
+  width: 40px;
+  height: 40px;
+  border-radius: var(--radius-sm);
+  background: var(--bg-elevated);
+  border: 1px solid var(--border);
   color: #fff;
+  font-size: 18px;
   display: flex;
   align-items: center;
   justify-content: center;
-  backdrop-filter: blur(8px);
   transition: opacity 0.2s var(--ease), transform 0.15s var(--ease);
 }
-.lightbox-nav:active { transform: translateY(-50%) scale(0.88); }
+.lightbox-nav:active { transform: translateY(-50%) scale(0.9); }
 .lightbox-nav.prev { left: var(--space-sm); }
 .lightbox-nav.next { right: var(--space-sm); }
-.lightbox-nav:disabled { opacity: 0; pointer-events: none; }
+.lightbox-nav:disabled { opacity: 0.25; pointer-events: none; }
 @media (max-width: 640px) {
   .lightbox-nav { display: none; }
 }
@@ -815,19 +864,19 @@ body.select-mode .tile .select-indicator { display: flex; }
   top: 10px;
   left: 50%;
   transform: translateX(-50%);
-  background: rgba(0, 0, 0, 0.6);
+  background: rgba(0, 0, 0, 0.65);
   border: 1px solid rgba(255, 255, 255, 0.14);
-  backdrop-filter: blur(10px);
+  backdrop-filter: blur(12px);
   color: #fff;
-  font-family: ui-monospace, 'SF Mono', Menlo, Consolas, monospace;
+  font-family: var(--mono);
   font-size: 12px;
-  font-weight: 600;
-  padding: 5px 13px;
+  padding: 5px 14px;
   border-radius: var(--radius-pill);
   pointer-events: none;
   opacity: 0;
   transition: opacity 0.25s var(--ease);
   z-index: 4;
+  white-space: nowrap;
 }
 .zoom-hud.vis { opacity: 1; }
 
@@ -846,13 +895,13 @@ body.select-mode .tile .select-indicator { display: flex; }
   bottom: 16px;
   left: 50%;
   transform: translateX(-50%);
-  background: rgba(0, 0, 0, 0.68);
-  border: 1px solid rgba(255, 255, 255, 0.16);
+  background: rgba(0, 0, 0, 0.72);
+  border: 1px solid rgba(255, 255, 255, 0.18);
   backdrop-filter: blur(12px);
   color: #fff;
   font-size: 13px;
   font-weight: 500;
-  padding: 10px 20px;
+  padding: 10px 22px;
   border-radius: var(--radius-pill);
   display: flex;
   align-items: center;
@@ -860,17 +909,29 @@ body.select-mode .tile .select-indicator { display: flex; }
   z-index: 5;
   box-shadow: 0 4px 20px rgba(0, 0, 0, 0.5);
   animation: fadeUp 0.25s var(--ease) both;
+  white-space: nowrap;
 }
-.cinema-exit .icon { width: 15px; height: 15px; }
 
 .lightbox-footer {
-  padding: var(--space-sm) var(--space-md) calc(var(--space-md) + env(safe-area-inset-bottom));
-  text-align: center;
+  padding: 10px 14px calc(10px + env(safe-area-inset-bottom));
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 12px;
+  border-top: 1px solid var(--border);
   flex-shrink: 0;
   transition: opacity 0.16s var(--ease);
 }
-.lightbox-name { color: #fff; font-size: 14px; font-weight: 600; }
-.lightbox-meta { color: rgba(255,255,255,0.55); font-size: 12.5px; margin-top: 2px; }
+.lightbox-name {
+  color: var(--text-secondary);
+  font-size: 11.5px;
+  font-family: var(--mono);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  flex: 1;
+}
+.lightbox-meta { color: var(--text-secondary); font-size: 11.5px; font-family: var(--mono); flex-shrink: 0; }
 
 /* ------------------------------ Context menu -------------------------------- */
 
@@ -878,41 +939,70 @@ body.select-mode .tile .select-indicator { display: flex; }
   position: fixed;
   inset: 0;
   z-index: 199;
-  background: transparent;
+  background: rgba(0, 0, 0, 0.4);
+  backdrop-filter: blur(2px);
+  -webkit-backdrop-filter: blur(2px);
 }
 
 .context-menu {
   position: fixed;
   z-index: 200;
-  background: var(--blur-bg);
-  backdrop-filter: blur(24px) saturate(1.8);
-  -webkit-backdrop-filter: blur(24px) saturate(1.8);
-  border: 1px solid var(--border);
+  background: var(--bg-elevated);
+  border: 1px solid var(--border2);
   border-radius: var(--radius-md);
   box-shadow: var(--shadow-md);
-  overflow: hidden;
-  min-width: 200px;
+  padding: 6px;
+  min-width: 210px;
   animation: popIn 0.16s var(--ease) both;
 }
-@keyframes popIn { from { opacity: 0; transform: scale(0.92) translateY(-4px); } to { opacity: 1; transform: scale(1) translateY(0); } }
+@keyframes popIn { from { opacity: 0; transform: scale(0.94) translateY(-4px); } to { opacity: 1; transform: scale(1) translateY(0); } }
 
-.context-menu button {
+/* The two most common actions — Favourite and Move to Folder — get a big
+   2-up icon-grid row up top, one tap away; everything else is a compact
+   list below. */
+.context-menu-big-row {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+  padding: 4px 4px 8px;
+}
+.context-menu-big {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  padding: 16px 8px;
+  border-radius: 14px;
+  background: var(--bg-tile);
+  border: 1px solid var(--border2);
+  color: var(--text-primary);
+  transition: background 0.12s var(--ease), border-color 0.12s var(--ease), transform 0.1s var(--ease);
+}
+.context-menu-big:active { background: var(--bg-surf3); transform: scale(0.97); }
+.context-menu-big .emoji-icon { font-size: 22px; }
+.context-menu-big span:last-child { font-size: 12.5px; font-weight: 600; text-align: center; }
+.context-menu-big.folder-accent { border-color: rgba(62, 207, 142, 0.35); background: rgba(62, 207, 142, 0.1); color: var(--folder-accent); }
+.context-menu-big.folder-accent:active { background: rgba(62, 207, 142, 0.18); }
+.context-menu-big.is-favorite { border-color: rgba(255, 204, 0, 0.4); background: rgba(255, 204, 0, 0.1); color: var(--favorite); }
+.context-menu-big.is-favorite:active { background: rgba(255, 204, 0, 0.18); }
+
+.context-menu-divider { height: 1px; background: var(--border); margin: 4px 0; }
+
+.context-menu button.context-menu-row {
   display: flex;
   align-items: center;
-  gap: var(--space-sm);
+  gap: 10px;
   width: 100%;
-  padding: 12px var(--space-md);
-  font-size: 15px;
+  padding: 11px 12px;
+  border-radius: var(--radius-sm);
+  font-size: 14px;
   font-weight: 500;
   text-align: left;
-  border-bottom: 1px solid var(--border);
 }
-.context-menu button:last-child { border-bottom: none; }
-.context-menu button:active { background: rgba(127,127,127,0.15); }
-.context-menu button .icon { width: 18px; height: 18px; color: var(--text-secondary); }
-.context-menu button.danger { color: var(--danger); }
-.context-menu button.danger .icon { color: var(--danger); }
-.context-menu button.is-favorite .icon { color: var(--favorite); fill: var(--favorite); stroke: var(--favorite); }
+.context-menu button.context-menu-row:active { background: rgba(255, 255, 255, 0.08); }
+.context-menu button.context-menu-row .emoji-icon { font-size: 15px; width: 20px; text-align: center; flex-shrink: 0; }
+.context-menu button.context-menu-row.danger { color: var(--danger); }
 
 /* -------------------------------- Info sheet --------------------------------- */
 
@@ -929,27 +1019,29 @@ body.select-mode .tile .select-indicator { display: flex; }
   z-index: 210;
   display: flex;
   justify-content: center;
+  padding-bottom: calc(env(safe-area-inset-bottom) + 16px);
 }
 .info-sheet-inner {
-  width: 100%;
-  max-width: 500px;
+  width: min(420px, calc(100vw - 32px));
   background: var(--bg-elevated);
-  border-radius: 20px 20px 0 0;
-  padding: var(--space-sm) var(--space-lg) calc(var(--space-lg) + env(safe-area-inset-bottom));
+  border: 1px solid var(--border2);
+  border-radius: var(--radius-lg);
+  padding: var(--space-sm) var(--space-lg) var(--space-lg);
   box-shadow: var(--shadow-md);
-  animation: sheetUp 0.28s var(--ease) both;
+  animation: sheetUp 0.22s var(--ease) both;
+  margin: 0 16px;
 }
-@keyframes sheetUp { from { transform: translateY(100%); } to { transform: translateY(0); } }
+@keyframes sheetUp { from { opacity: 0; transform: translateY(12px); } to { opacity: 1; transform: translateY(0); } }
 .info-sheet-handle {
   width: 36px;
   height: 5px;
   border-radius: var(--radius-pill);
-  background: var(--border);
+  background: var(--border2);
   margin: var(--space-sm) auto var(--space-md);
 }
 .info-sheet h3 {
   margin: 0 0 var(--space-md);
-  font-size: 18px;
+  font-size: 17px;
   font-weight: 700;
   word-break: break-word;
 }
@@ -959,8 +1051,8 @@ body.select-mode .tile .select-indicator { display: flex; }
   grid-template-columns: auto 1fr;
   gap: var(--space-sm) var(--space-md);
 }
-.info-sheet dt { color: var(--text-secondary); font-size: 14px; }
-.info-sheet dd { margin: 0; font-size: 14px; font-weight: 500; text-align: right; }
+.info-sheet dt { color: var(--text-secondary); font-size: 13px; }
+.info-sheet dd { margin: 0; font-size: 13px; font-weight: 500; text-align: right; font-family: var(--mono); }
 .info-sheet .btn-primary { width: 100%; text-align: center; }
 
 /* -------------------------------- Form controls -------------------------------- */
@@ -968,9 +1060,9 @@ body.select-mode .tile .select-indicator { display: flex; }
 .text-input {
   width: 100%;
   padding: 12px 14px;
-  border-radius: var(--radius-md);
-  border: 1px solid var(--border);
-  background: var(--bg-primary);
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--border2);
+  background: var(--bg-tile);
   color: var(--text-primary);
   font: inherit;
   font-size: 16px;
@@ -980,19 +1072,20 @@ body.select-mode .tile .select-indicator { display: flex; }
 }
 .text-input:focus {
   border-color: var(--accent);
-  box-shadow: 0 0 0 3px rgba(0, 113, 227, 0.18);
+  box-shadow: 0 0 0 3px rgba(79, 138, 255, 0.18);
 }
 
 .btn-secondary {
   background: var(--bg-tile);
   color: var(--text-primary);
+  border: 1px solid var(--border2);
   padding: 12px 24px;
-  border-radius: var(--radius-pill);
-  font-weight: 600;
-  font-size: 15px;
-  transition: transform 0.15s var(--ease), filter 0.15s var(--ease);
+  border-radius: var(--radius-sm);
+  font-weight: 500;
+  font-size: 14px;
+  transition: background 0.15s var(--ease);
 }
-.btn-secondary:active { transform: scale(0.96); filter: brightness(0.95); }
+.btn-secondary:active { background: var(--bg-surf3); }
 
 .sheet-actions { display: flex; gap: var(--space-sm); }
 .sheet-actions .btn-primary,
@@ -1014,19 +1107,17 @@ body.select-mode .tile .select-indicator { display: flex; }
   align-items: center;
   gap: var(--space-sm);
   width: 100%;
-  padding: 12px var(--space-sm);
+  padding: 11px var(--space-sm);
   border-radius: var(--radius-sm);
-  font-size: 15px;
-  font-weight: 500;
+  font-size: 14px;
   text-align: left;
 }
-.move-row:active { background: rgba(127, 127, 127, 0.15); }
-.move-row .icon { width: 19px; height: 19px; color: var(--text-secondary); flex-shrink: 0; }
-.move-row span { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.move-row .check { color: var(--accent); flex-shrink: 0; width: 18px; height: 18px; }
-.move-row.danger { color: var(--danger); }
-.move-row.danger .icon { color: var(--danger); }
-.move-row.new-row .icon { color: var(--accent); }
+.move-row:active { background: rgba(255, 255, 255, 0.06); }
+.move-row .emoji-icon { font-size: 14px; width: 19px; text-align: center; flex-shrink: 0; opacity: 0.85; }
+.move-row span:not(.emoji-icon):not(.check) { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.move-row .check { color: var(--accent); flex-shrink: 0; font-size: 13px; }
+.move-row.danger { color: var(--danger); border-top: 1px solid var(--border); margin-bottom: 4px; }
+.move-row.new-row { color: var(--accent); border-top: 1px solid var(--border); margin-top: 4px; }
 
 /* -------------------------------- Toast ---------------------------------- */
 
@@ -1039,11 +1130,9 @@ body.select-mode .tile .select-indicator { display: flex; }
   display: flex;
   align-items: center;
   gap: var(--space-md);
-  padding: 10px 18px;
-  background: var(--blur-bg);
-  backdrop-filter: blur(24px) saturate(1.8);
-  -webkit-backdrop-filter: blur(24px) saturate(1.8);
-  border: 1px solid var(--border);
+  padding: 9px 18px;
+  background: var(--bg-elevated);
+  border: 1px solid var(--border2);
   border-radius: var(--radius-pill);
   box-shadow: var(--shadow-md);
   opacity: 0;
@@ -1053,10 +1142,10 @@ body.select-mode .tile .select-indicator { display: flex; }
   max-width: calc(100% - 32px);
 }
 .toast.show { opacity: 1; pointer-events: auto; transform: translateX(-50%) translateY(0); }
-.toast-text { font-size: 13.5px; font-weight: 500; overflow: hidden; text-overflow: ellipsis; }
+.toast-text { font-size: 13px; font-weight: 500; overflow: hidden; text-overflow: ellipsis; }
 .toast-action {
   color: var(--accent);
-  font-size: 13.5px;
+  font-size: 13px;
   font-weight: 700;
   flex-shrink: 0;
 }
@@ -1069,55 +1158,40 @@ body.select-mode .tile .select-indicator { display: flex; }
 /* -------------------------------- Responsive ------------------------------------ */
 
 @media (min-width: 720px) {
-  .tile-grid { gap: 4px; }
+  .tile-grid { gap: 6px; }
   .folder-grid { grid-template-columns: repeat(3, 1fr); }
+}
+
+@media (max-width: 360px) {
+  .topbar h1 { font-size: 15px; }
+  .settings-panel { width: 220px; }
+  .folder-fan { height: 88px; }
+  .folder-fan .fan-card { width: 64px; height: 64px; }
 }
 
 </style>
 </head>
 <body>
 
-<!-- ============ Icon sprite (single art style used everywhere) ============ -->
-<svg style="display:none" aria-hidden="true">
-  <symbol id="icon-all" viewBox="0 0 24 24"><rect x="3" y="3" width="7" height="7" rx="1.6"/><rect x="14" y="3" width="7" height="7" rx="1.6"/><rect x="3" y="14" width="7" height="7" rx="1.6"/><rect x="14" y="14" width="7" height="7" rx="1.6"/></symbol>
-  <symbol id="icon-photos" viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="16" rx="2"/><circle cx="8.5" cy="9.5" r="1.8"/><path d="M21 16l-5.5-5.5a1.5 1.5 0 0 0-2.1 0L3 20"/></symbol>
-  <symbol id="icon-videos" viewBox="0 0 24 24"><rect x="3" y="5" width="14" height="14" rx="2"/><path d="M17 9.5l4-2.3v9.6l-4-2.3"/></symbol>
-  <symbol id="icon-favorites" viewBox="0 0 24 24"><path d="M12 20.5s-7.5-4.6-10-9.4C0.3 7.8 2 4 5.8 4c2.2 0 3.7 1.3 4.5 2.4C11.1 5.3 12.6 4 14.8 4 18.6 4 20.3 7.8 18.7 11.1c-2.5 4.8-6.7 9.4-6.7 9.4z"/></symbol>
-  <symbol id="icon-folders" viewBox="0 0 24 24"><path d="M3 6.5a1.5 1.5 0 0 1 1.5-1.5H9l2 2.2h8.5A1.5 1.5 0 0 1 21 8.7v9.1A1.7 1.7 0 0 1 19.3 19.5H4.7A1.7 1.7 0 0 1 3 17.8z"/></symbol>
-  <symbol id="icon-plus" viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></symbol>
-  <symbol id="icon-folder-plus" viewBox="0 0 24 24"><path d="M3 6.5a1.5 1.5 0 0 1 1.5-1.5H9l2 2.2h8.5A1.5 1.5 0 0 1 21 8.7v9.1A1.7 1.7 0 0 1 19.3 19.5H4.7A1.7 1.7 0 0 1 3 17.8z"/><path d="M12 10.5v5M9.5 13h5"/></symbol>
-  <symbol id="icon-x" viewBox="0 0 24 24"><path d="M6 6l12 12M18 6L6 18"/></symbol>
-  <symbol id="icon-chevron-left" viewBox="0 0 24 24"><path d="M15 5l-7 7 7 7"/></symbol>
-  <symbol id="icon-chevron-right" viewBox="0 0 24 24"><path d="M9 5l7 7-7 7"/></symbol>
-  <symbol id="icon-play" viewBox="0 0 24 24"><path d="M8 5.5v13l11-6.5z"/></symbol>
-  <symbol id="icon-dots" viewBox="0 0 24 24"><circle cx="5" cy="12" r="1.6"/><circle cx="12" cy="12" r="1.6"/><circle cx="19" cy="12" r="1.6"/></symbol>
-  <symbol id="icon-trash" viewBox="0 0 24 24"><path d="M4 7h16M9 7V5a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2M6 7l1 13a1.5 1.5 0 0 0 1.5 1.4h7A1.5 1.5 0 0 0 17 20l1-13"/></symbol>
-  <symbol id="icon-info" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M12 11v5.5"/><circle cx="12" cy="7.7" r="1"/></symbol>
-  <symbol id="icon-check" viewBox="0 0 24 24"><path d="M5 12.5l4.5 4.5L19 7"/></symbol>
-  <symbol id="icon-pencil" viewBox="0 0 24 24"><path d="M4 20l1-4.2L15.8 5 19 8.2 8.2 19 4 20z"/><path d="M13.5 6.5l4 4"/></symbol>
-  <symbol id="icon-select" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M8 12.5l2.5 2.5L16 9.5"/></symbol>
-  <symbol id="icon-settings" viewBox="0 0 24 24"><circle cx="12" cy="12" r="3.2"/><path d="M19.4 13.5a1.7 1.7 0 0 0 .34 1.87l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.7 1.7 0 0 0-1.87-.34 1.7 1.7 0 0 0-1 1.55V19.6a2 2 0 1 1-4 0v-.09a1.7 1.7 0 0 0-1.1-1.55 1.7 1.7 0 0 0-1.87.34l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.7 1.7 0 0 0 .34-1.87 1.7 1.7 0 0 0-1.55-1H2.4a2 2 0 1 1 0-4h.09a1.7 1.7 0 0 0 1.55-1.1 1.7 1.7 0 0 0-.34-1.87l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.7 1.7 0 0 0 1.87.34H8.5a1.7 1.7 0 0 0 1-1.55V2.4a2 2 0 1 1 4 0v.09a1.7 1.7 0 0 0 1 1.55 1.7 1.7 0 0 0 1.87-.34l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.7 1.7 0 0 0-.34 1.87V8.5a1.7 1.7 0 0 0 1.55 1H21.6a2 2 0 1 1 0 4h-.09a1.7 1.7 0 0 0-1.55 1z"/></symbol>
-  <symbol id="icon-expand" viewBox="0 0 24 24"><path d="M9 4H4v5M15 4h5v5M9 20H4v-5M15 20h5v-5"/></symbol>
-  <symbol id="icon-collapse" viewBox="0 0 24 24"><path d="M4 9h5V4M20 9h-5V4M4 15h5v5M20 15h-5v5"/></symbol>
-  <symbol id="icon-copy" viewBox="0 0 24 24"><rect x="8" y="8" width="12" height="12" rx="2"/><path d="M16 8V6a2 2 0 0 0-2-2H6a2 2 0 0 0-2 2v8a2 2 0 0 0 2 2h2"/></symbol>
-</svg>
-
 <div id="app">
 
   <header class="topbar">
-    <h1 id="topbarTitle">Photos</h1>
+    <div class="topbar-title-wrap">
+      <span class="topbar-logo emoji-icon" aria-hidden="true">📷</span>
+      <h1 id="topbarTitle">Photos</h1>
+    </div>
     <div class="topbar-actions">
       <button class="text-btn hidden-btn" id="selectAllBtn">Select All</button>
-      <button class="text-btn hidden-btn" id="cancelSelectBtn">Cancel</button>
+      <button class="text-btn hidden-btn" id="cancelSelectBtn">✕ Cancel</button>
       <button class="icon-btn" id="newFolderBtn" aria-label="New folder">
-        <svg class="icon"><use href="#icon-folder-plus"/></svg>
+        <span class="emoji-icon">📁</span>
       </button>
       <button class="icon-btn" id="selectModeBtn" aria-label="Select items">
-        <svg class="icon"><use href="#icon-select"/></svg>
+        <span class="emoji-icon">☑️</span>
       </button>
       <div class="settings-wrap">
         <button class="icon-btn" id="settingsBtn" aria-label="Settings">
-          <svg class="icon"><use href="#icon-settings"/></svg>
+          <span class="emoji-icon">⚙️</span>
         </button>
         <div class="settings-panel" id="settingsPanel" hidden>
           <div class="settings-title">Display</div>
@@ -1137,21 +1211,22 @@ body.select-mode .tile .select-indicator { display: flex; }
           </label>
           <div class="settings-title">Backup</div>
           <button class="settings-action" id="exportBackupBtn">
-            <svg class="icon"><use href="#icon-copy"/></svg><span>Export Backup</span>
+            <span class="emoji-icon">📤</span><span>Export Backup</span>
           </button>
           <button class="settings-action" id="importBackupBtn">
-            <svg class="icon"><use href="#icon-folder-plus"/></svg><span>Import Backup</span>
+            <span class="emoji-icon">📥</span><span>Import Backup</span>
           </button>
           <p class="settings-hint">Backs up favourites and folders (not the photos/videos themselves) to a file you can re-import here, or on another device.</p>
         </div>
       </div>
       <button class="icon-btn" id="addFilesBtn" aria-label="Add photos or videos">
-        <svg class="icon"><use href="#icon-plus"/></svg>
+        <span class="emoji-icon">＋</span>
       </button>
     </div>
   </header>
 
   <div class="status-bar" id="statusBar" hidden>
+    <span class="emoji-icon" aria-hidden="true">📂</span>
     <span class="status-text" id="statusText"></span>
     <span class="status-badge" id="statusBadge"></span>
   </div>
@@ -1187,7 +1262,7 @@ body.select-mode .tile .select-indicator { display: flex; }
 
     <section class="view grid-view" data-view="folder-detail" id="view-folder-detail">
       <button class="back-btn" id="folderBackBtn">
-        <svg class="icon"><use href="#icon-chevron-left"/></svg>
+        <span class="emoji-icon">‹</span>
         <span>Folders</span>
       </button>
       <h2 class="folder-detail-title" id="folderDetailTitle"></h2>
@@ -1198,23 +1273,23 @@ body.select-mode .tile .select-indicator { display: flex; }
 
   <nav class="tabbar" id="mainTabbar">
     <button class="tab-btn active" data-tab="all">
-      <svg class="icon"><use href="#icon-all"/></svg>
+      <span class="emoji-icon">⊞</span>
       <span>All</span>
     </button>
     <button class="tab-btn" data-tab="photos">
-      <svg class="icon"><use href="#icon-photos"/></svg>
+      <span class="emoji-icon">🖼</span>
       <span>Photos</span>
     </button>
     <button class="tab-btn" data-tab="videos">
-      <svg class="icon"><use href="#icon-videos"/></svg>
+      <span class="emoji-icon">🎬</span>
       <span>Videos</span>
     </button>
     <button class="tab-btn" data-tab="favorites">
-      <svg class="icon"><use href="#icon-favorites"/></svg>
+      <span class="emoji-icon">★</span>
       <span>Favourites</span>
     </button>
     <button class="tab-btn" data-tab="folders">
-      <svg class="icon"><use href="#icon-folders"/></svg>
+      <span class="emoji-icon">📁</span>
       <span>Folders</span>
     </button>
   </nav>
@@ -1222,15 +1297,15 @@ body.select-mode .tile .select-indicator { display: flex; }
   <!-- Selection action bar — replaces the tab bar while Select mode is on -->
   <nav class="tabbar" id="selectActionBar" hidden>
     <button class="tab-btn" id="selectFavBtn" disabled>
-      <svg class="icon"><use href="#icon-favorites"/></svg>
-      <span>Favourite</span>
+      <span class="emoji-icon">★</span>
+      <span data-select-fav-label>Favourite</span>
     </button>
-    <button class="tab-btn" id="selectMoveBtn" disabled>
-      <svg class="icon"><use href="#icon-folders"/></svg>
+    <button class="tab-btn folder-tab" id="selectMoveBtn" disabled>
+      <span class="emoji-icon">📁</span>
       <span>Move</span>
     </button>
     <button class="tab-btn danger-tab" id="selectRemoveBtn" disabled>
-      <svg class="icon"><use href="#icon-trash"/></svg>
+      <span class="emoji-icon">🗑</span>
       <span>Remove</span>
     </button>
   </nav>
@@ -1239,29 +1314,29 @@ body.select-mode .tile .select-indicator { display: flex; }
   <div class="lightbox" id="lightbox" hidden>
     <div class="lightbox-header">
       <button class="icon-btn light" id="lightboxClose" aria-label="Close">
-        <svg class="icon"><use href="#icon-x"/></svg>
+        <span class="emoji-icon">✕</span>
       </button>
       <span class="lightbox-counter" id="lightboxCounter"></span>
       <div class="lightbox-header-actions">
         <button class="icon-btn light" id="lightboxFullscreen" aria-label="Toggle fullscreen">
-          <svg class="icon"><use href="#icon-expand"/></svg>
+          <span class="emoji-icon">⛶</span>
         </button>
         <button class="icon-btn light" id="lightboxFav" aria-label="Toggle favourite">
-          <svg class="icon"><use href="#icon-favorites"/></svg>
+          <span class="emoji-icon">☆</span>
         </button>
       </div>
     </div>
     <div class="lightbox-stage" id="lightboxStage">
       <button class="lightbox-nav prev" id="lightboxPrev" aria-label="Previous">
-        <svg class="icon"><use href="#icon-chevron-left"/></svg>
+        <span class="emoji-icon">‹</span>
       </button>
       <div class="lightbox-media" id="lightboxMedia"></div>
       <button class="lightbox-nav next" id="lightboxNext" aria-label="Next">
-        <svg class="icon"><use href="#icon-chevron-right"/></svg>
+        <span class="emoji-icon">›</span>
       </button>
       <div class="zoom-hud" id="zoomHud">100%</div>
       <button class="cinema-exit" id="cinemaExit" hidden>
-        <svg class="icon"><use href="#icon-collapse"/></svg><span>Exit Fullscreen</span>
+        <span class="emoji-icon">⊠</span><span>Exit Fullscreen</span>
       </button>
     </div>
     <div class="lightbox-footer">
@@ -1272,17 +1347,22 @@ body.select-mode .tile .select-indicator { display: flex; }
 
   <!-- Per-item context menu -->
   <div class="context-menu" id="contextMenu" hidden>
-    <button data-action="favorite"><svg class="icon"><use href="#icon-favorites"/></svg><span>Add to Favourites</span></button>
-    <button data-action="move"><svg class="icon"><use href="#icon-folders"/></svg><span>Move to Folder</span></button>
-    <button data-action="info"><svg class="icon"><use href="#icon-info"/></svg><span>Info</span></button>
-    <button data-action="remove" class="danger"><svg class="icon"><use href="#icon-trash"/></svg><span>Remove</span></button>
+    <div class="context-menu-big-row">
+      <button class="context-menu-big" data-action="move"><span class="emoji-icon">📁</span><span>Move to Folder</span></button>
+      <button class="context-menu-big" data-action="favorite"><span class="emoji-icon">⭐</span><span data-fav-label>Favourite</span></button>
+    </div>
+    <div class="context-menu-divider"></div>
+    <button class="context-menu-row" data-action="info"><span class="emoji-icon">ℹ️</span><span>Info</span></button>
+    <div class="context-menu-divider"></div>
+    <button class="context-menu-row danger" data-action="remove"><span class="emoji-icon">🗑️</span><span>Remove</span></button>
   </div>
   <div class="context-menu-backdrop" id="contextMenuBackdrop" hidden></div>
 
   <!-- Per-folder context menu -->
   <div class="context-menu" id="folderContextMenu" hidden>
-    <button data-action="rename"><svg class="icon"><use href="#icon-pencil"/></svg><span>Rename</span></button>
-    <button data-action="delete" class="danger"><svg class="icon"><use href="#icon-trash"/></svg><span>Delete Folder</span></button>
+    <button class="context-menu-row" data-action="rename"><span class="emoji-icon">✏️</span><span>Rename</span></button>
+    <div class="context-menu-divider"></div>
+    <button class="context-menu-row danger" data-action="delete"><span class="emoji-icon">🗑️</span><span>Delete Folder</span></button>
   </div>
   <div class="context-menu-backdrop" id="folderContextMenuBackdrop" hidden></div>
 
@@ -2135,8 +2215,7 @@ body.select-mode .tile .select-indicator { display: flex; }
   function makeFallbackEl(item) {
     const div = document.createElement('div');
     div.className = 'thumb-fallback';
-    const iconId = item.type === 'video' ? '#icon-videos' : '#icon-photos';
-    div.innerHTML = `<svg class="icon"><use href="${iconId}"/></svg>`;
+    div.innerHTML = `<span class="emoji-icon">${item.type === 'video' ? '🎬' : '🖼'}</span>`;
     return div;
   }
 
@@ -2483,7 +2562,7 @@ body.select-mode .tile .select-indicator { display: flex; }
     if (item.type === 'video') {
       const badge = document.createElement('div');
       badge.className = 'video-badge';
-      badge.innerHTML = `<svg class="icon"><use href="#icon-play"/></svg><span class="dur">${item.duration != null ? formatDuration(item.duration) : '--:--'}</span>`;
+      badge.innerHTML = `<span class="emoji-icon">▶</span><span class="dur">${item.duration != null ? formatDuration(item.duration) : '--:--'}</span>`;
       tile.appendChild(badge);
     }
 
@@ -2497,7 +2576,7 @@ body.select-mode .tile .select-indicator { display: flex; }
     const favBtn = document.createElement('button');
     favBtn.className = 'fav-btn';
     favBtn.setAttribute('aria-label', 'Toggle favourite');
-    favBtn.innerHTML = '<svg class="icon"><use href="#icon-favorites"/></svg>';
+    favBtn.innerHTML = `<span class="emoji-icon">${favorites.has(item.id) ? '⭐' : '☆'}</span>`;
     favBtn.addEventListener('click', (e) => {
       e.stopPropagation();
       toggleFavorite(item.id);
@@ -2507,7 +2586,7 @@ body.select-mode .tile .select-indicator { display: flex; }
     const menuBtn = document.createElement('button');
     menuBtn.className = 'menu-btn';
     menuBtn.setAttribute('aria-label', 'More options');
-    menuBtn.innerHTML = '<svg class="icon"><use href="#icon-dots"/></svg>';
+    menuBtn.innerHTML = '<span class="emoji-icon">⋯</span>';
     menuBtn.addEventListener('click', (e) => {
       e.stopPropagation();
       openContextMenu(item.id, menuBtn);
@@ -2516,7 +2595,7 @@ body.select-mode .tile .select-indicator { display: flex; }
 
     const selectIndicator = document.createElement('div');
     selectIndicator.className = 'select-indicator';
-    selectIndicator.innerHTML = '<svg class="icon"><use href="#icon-check"/></svg>';
+    selectIndicator.innerHTML = '<span class="emoji-icon">✓</span>';
     tile.appendChild(selectIndicator);
 
     tile.addEventListener('click', () => {
@@ -2580,7 +2659,7 @@ body.select-mode .tile .select-indicator { display: flex; }
     selectRemoveBtn.disabled = n === 0;
     const allFav = n > 0 && Array.from(selectedIds).every((id) => favorites.has(id));
     selectFavBtn.classList.toggle('is-favorite', allFav);
-    $('span', selectFavBtn).textContent = allFav ? 'Unfavourite' : 'Favourite';
+    $('[data-select-fav-label]', selectFavBtn).textContent = allFav ? 'Unfavourite' : 'Favourite';
   }
 
   selectModeBtn.addEventListener('click', () => setSelectMode(true));
@@ -2622,34 +2701,34 @@ body.select-mode .tile .select-indicator { display: flex; }
     switch (viewKey) {
       case 'all':
         return `
-          <svg class="icon"><use href="#icon-all"/></svg>
+          <span class="emoji-icon">🖼️</span>
           <h3>No media yet</h3>
           <p>Add photos and videos from this device to get started.</p>
-          <button class="btn-primary empty-cta" data-action="add-media">Add Photos &amp; Videos</button>`;
+          <button class="btn-primary empty-cta" data-action="add-media">＋ Add Photos &amp; Videos</button>`;
       case 'photos':
         return `
-          <svg class="icon"><use href="#icon-photos"/></svg>
+          <span class="emoji-icon">🖼</span>
           <h3>No photos yet</h3>
           <p>Photos you add will show up here.</p>`;
       case 'videos':
         return `
-          <svg class="icon"><use href="#icon-videos"/></svg>
+          <span class="emoji-icon">🎬</span>
           <h3>No videos yet</h3>
           <p>Videos you add will show up here.</p>`;
       case 'favorites':
         return `
-          <svg class="icon"><use href="#icon-favorites"/></svg>
+          <span class="emoji-icon">⭐</span>
           <h3>No favourites yet</h3>
-          <p>Tap the heart on any photo or video to add it here. Favourites last for this session only.</p>`;
+          <p>Tap the star on any photo or video to add it here. Favourites are remembered automatically, even after you close the app.</p>`;
       case 'folders':
         return `
-          <svg class="icon"><use href="#icon-folders"/></svg>
+          <span class="emoji-icon">📁</span>
           <h3>No folders yet</h3>
-          <p>Create a folder, then use a photo or video's ••• menu to move it in. Folders only show up while their media is present.</p>
-          <button class="btn-primary empty-cta" data-action="new-folder">New Folder</button>`;
+          <p>Create a folder, then use a photo or video's ⋯ menu to move it in. Folders only show up while their media is present.</p>
+          <button class="btn-primary empty-cta" data-action="new-folder">＋ New Folder</button>`;
       case 'folder-empty':
         return `
-          <svg class="icon"><use href="#icon-folders"/></svg>
+          <span class="emoji-icon">📁</span>
           <h3>This folder is empty</h3>
           <p>Once you move something into this folder — or re-add media that was already in it — it'll show up here again.</p>`;
       default:
@@ -2797,7 +2876,7 @@ body.select-mode .tile .select-indicator { display: flex; }
     const menuBtn = document.createElement('button');
     menuBtn.className = 'folder-menu-btn';
     menuBtn.setAttribute('aria-label', 'Folder options');
-    menuBtn.innerHTML = '<svg class="icon"><use href="#icon-dots"/></svg>';
+    menuBtn.innerHTML = '<span class="emoji-icon">⋯</span>';
     menuBtn.addEventListener('click', (e) => {
       e.stopPropagation();
       openFolderContextMenu(folder, menuBtn);
@@ -2866,12 +2945,12 @@ body.select-mode .tile .select-indicator { display: flex; }
 
   /* ------------------------------- Move to Folder sheet -------------------------------- */
 
-  function buildMoveRow({ icon, label, danger, checked, onClick }) {
+  function buildMoveRow({ emoji, label, danger, checked, onClick }) {
     const btn = document.createElement('button');
     btn.className = 'move-row' + (danger ? ' danger' : '');
-    btn.innerHTML = `<svg class="icon"><use href="#${icon}"/></svg><span></span>` +
-      (checked ? '<svg class="icon check"><use href="#icon-check"/></svg>' : '');
-    btn.querySelector('span').textContent = label;
+    btn.innerHTML = `<span class="emoji-icon">${emoji}</span><span></span>` +
+      (checked ? '<span class="emoji-icon check">✓</span>' : '');
+    btn.querySelector('span:not(.emoji-icon)').textContent = label;
     btn.addEventListener('click', onClick);
     return btn;
   }
@@ -2888,7 +2967,7 @@ body.select-mode .tile .select-indicator { display: flex; }
 
     if (items.some((it) => it.folderId)) {
       moveFolderList.appendChild(buildMoveRow({
-        icon: 'icon-x', label: 'Remove from Folder', danger: true,
+        emoji: '✕', label: 'Remove from Folder', danger: true,
         onClick: () => {
           ids.forEach(removeFromFolderSilent);
           saveAssignments();
@@ -2899,7 +2978,7 @@ body.select-mode .tile .select-indicator { display: flex; }
     }
 
     const newRow = buildMoveRow({
-      icon: 'icon-folder-plus', label: 'New Folder…',
+      emoji: '＋', label: 'New Folder…',
       onClick: () => { closeMoveSheet(); openFolderNameSheet('create', null, ids); },
     });
     newRow.classList.add('new-row');
@@ -2907,7 +2986,7 @@ body.select-mode .tile .select-indicator { display: flex; }
 
     folders.slice().sort((a, b) => a.name.localeCompare(b.name)).forEach((folder) => {
       moveFolderList.appendChild(buildMoveRow({
-        icon: 'icon-folders', label: folder.name,
+        emoji: '📁', label: folder.name,
         checked: items.length > 0 && items.every((it) => it.folderId === folder.id),
         onClick: () => {
           ids.forEach((id) => assignToFolderSilent(id, folder.id));
@@ -3094,7 +3173,9 @@ body.select-mode .tile .select-indicator { display: flex; }
   function updateLightboxFavState() {
     const item = lightboxList[lightboxIndex];
     if (!item) return;
-    lightboxFav.classList.toggle('is-favorite', favorites.has(item.id));
+    const isFav = favorites.has(item.id);
+    lightboxFav.classList.toggle('is-favorite', isFav);
+    $('.emoji-icon', lightboxFav).textContent = isFav ? '⭐' : '☆';
   }
 
   function lightboxStep(delta) {
@@ -3421,7 +3502,7 @@ body.select-mode .tile .select-indicator { display: flex; }
     const isFav = favorites.has(id);
     const favBtn = $('[data-action="favorite"]', contextMenu);
     favBtn.classList.toggle('is-favorite', isFav);
-    $('span', favBtn).textContent = isFav ? 'Remove from Favourites' : 'Add to Favourites';
+    $('[data-fav-label]', favBtn).textContent = isFav ? 'Unfavourite' : 'Favourite';
 
     contextMenu.hidden = false;
     contextMenuBackdrop.hidden = false;

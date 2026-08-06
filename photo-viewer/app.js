@@ -804,8 +804,7 @@
   function makeFallbackEl(item) {
     const div = document.createElement('div');
     div.className = 'thumb-fallback';
-    const iconId = item.type === 'video' ? '#icon-videos' : '#icon-photos';
-    div.innerHTML = `<svg class="icon"><use href="${iconId}"/></svg>`;
+    div.innerHTML = `<span class="emoji-icon">${item.type === 'video' ? '🎬' : '🖼'}</span>`;
     return div;
   }
 
@@ -1152,7 +1151,7 @@
     if (item.type === 'video') {
       const badge = document.createElement('div');
       badge.className = 'video-badge';
-      badge.innerHTML = `<svg class="icon"><use href="#icon-play"/></svg><span class="dur">${item.duration != null ? formatDuration(item.duration) : '--:--'}</span>`;
+      badge.innerHTML = `<span class="emoji-icon">▶</span><span class="dur">${item.duration != null ? formatDuration(item.duration) : '--:--'}</span>`;
       tile.appendChild(badge);
     }
 
@@ -1166,7 +1165,7 @@
     const favBtn = document.createElement('button');
     favBtn.className = 'fav-btn';
     favBtn.setAttribute('aria-label', 'Toggle favourite');
-    favBtn.innerHTML = '<svg class="icon"><use href="#icon-favorites"/></svg>';
+    favBtn.innerHTML = `<span class="emoji-icon">${favorites.has(item.id) ? '⭐' : '☆'}</span>`;
     favBtn.addEventListener('click', (e) => {
       e.stopPropagation();
       toggleFavorite(item.id);
@@ -1176,7 +1175,7 @@
     const menuBtn = document.createElement('button');
     menuBtn.className = 'menu-btn';
     menuBtn.setAttribute('aria-label', 'More options');
-    menuBtn.innerHTML = '<svg class="icon"><use href="#icon-dots"/></svg>';
+    menuBtn.innerHTML = '<span class="emoji-icon">⋯</span>';
     menuBtn.addEventListener('click', (e) => {
       e.stopPropagation();
       openContextMenu(item.id, menuBtn);
@@ -1185,7 +1184,7 @@
 
     const selectIndicator = document.createElement('div');
     selectIndicator.className = 'select-indicator';
-    selectIndicator.innerHTML = '<svg class="icon"><use href="#icon-check"/></svg>';
+    selectIndicator.innerHTML = '<span class="emoji-icon">✓</span>';
     tile.appendChild(selectIndicator);
 
     tile.addEventListener('click', () => {
@@ -1249,7 +1248,7 @@
     selectRemoveBtn.disabled = n === 0;
     const allFav = n > 0 && Array.from(selectedIds).every((id) => favorites.has(id));
     selectFavBtn.classList.toggle('is-favorite', allFav);
-    $('span', selectFavBtn).textContent = allFav ? 'Unfavourite' : 'Favourite';
+    $('[data-select-fav-label]', selectFavBtn).textContent = allFav ? 'Unfavourite' : 'Favourite';
   }
 
   selectModeBtn.addEventListener('click', () => setSelectMode(true));
@@ -1291,34 +1290,34 @@
     switch (viewKey) {
       case 'all':
         return `
-          <svg class="icon"><use href="#icon-all"/></svg>
+          <span class="emoji-icon">🖼️</span>
           <h3>No media yet</h3>
           <p>Add photos and videos from this device to get started.</p>
-          <button class="btn-primary empty-cta" data-action="add-media">Add Photos &amp; Videos</button>`;
+          <button class="btn-primary empty-cta" data-action="add-media">＋ Add Photos &amp; Videos</button>`;
       case 'photos':
         return `
-          <svg class="icon"><use href="#icon-photos"/></svg>
+          <span class="emoji-icon">🖼</span>
           <h3>No photos yet</h3>
           <p>Photos you add will show up here.</p>`;
       case 'videos':
         return `
-          <svg class="icon"><use href="#icon-videos"/></svg>
+          <span class="emoji-icon">🎬</span>
           <h3>No videos yet</h3>
           <p>Videos you add will show up here.</p>`;
       case 'favorites':
         return `
-          <svg class="icon"><use href="#icon-favorites"/></svg>
+          <span class="emoji-icon">⭐</span>
           <h3>No favourites yet</h3>
-          <p>Tap the heart on any photo or video to add it here. Favourites last for this session only.</p>`;
+          <p>Tap the star on any photo or video to add it here. Favourites are remembered automatically, even after you close the app.</p>`;
       case 'folders':
         return `
-          <svg class="icon"><use href="#icon-folders"/></svg>
+          <span class="emoji-icon">📁</span>
           <h3>No folders yet</h3>
-          <p>Create a folder, then use a photo or video's ••• menu to move it in. Folders only show up while their media is present.</p>
-          <button class="btn-primary empty-cta" data-action="new-folder">New Folder</button>`;
+          <p>Create a folder, then use a photo or video's ⋯ menu to move it in. Folders only show up while their media is present.</p>
+          <button class="btn-primary empty-cta" data-action="new-folder">＋ New Folder</button>`;
       case 'folder-empty':
         return `
-          <svg class="icon"><use href="#icon-folders"/></svg>
+          <span class="emoji-icon">📁</span>
           <h3>This folder is empty</h3>
           <p>Once you move something into this folder — or re-add media that was already in it — it'll show up here again.</p>`;
       default:
@@ -1466,7 +1465,7 @@
     const menuBtn = document.createElement('button');
     menuBtn.className = 'folder-menu-btn';
     menuBtn.setAttribute('aria-label', 'Folder options');
-    menuBtn.innerHTML = '<svg class="icon"><use href="#icon-dots"/></svg>';
+    menuBtn.innerHTML = '<span class="emoji-icon">⋯</span>';
     menuBtn.addEventListener('click', (e) => {
       e.stopPropagation();
       openFolderContextMenu(folder, menuBtn);
@@ -1535,12 +1534,12 @@
 
   /* ------------------------------- Move to Folder sheet -------------------------------- */
 
-  function buildMoveRow({ icon, label, danger, checked, onClick }) {
+  function buildMoveRow({ emoji, label, danger, checked, onClick }) {
     const btn = document.createElement('button');
     btn.className = 'move-row' + (danger ? ' danger' : '');
-    btn.innerHTML = `<svg class="icon"><use href="#${icon}"/></svg><span></span>` +
-      (checked ? '<svg class="icon check"><use href="#icon-check"/></svg>' : '');
-    btn.querySelector('span').textContent = label;
+    btn.innerHTML = `<span class="emoji-icon">${emoji}</span><span></span>` +
+      (checked ? '<span class="emoji-icon check">✓</span>' : '');
+    btn.querySelector('span:not(.emoji-icon)').textContent = label;
     btn.addEventListener('click', onClick);
     return btn;
   }
@@ -1557,7 +1556,7 @@
 
     if (items.some((it) => it.folderId)) {
       moveFolderList.appendChild(buildMoveRow({
-        icon: 'icon-x', label: 'Remove from Folder', danger: true,
+        emoji: '✕', label: 'Remove from Folder', danger: true,
         onClick: () => {
           ids.forEach(removeFromFolderSilent);
           saveAssignments();
@@ -1568,7 +1567,7 @@
     }
 
     const newRow = buildMoveRow({
-      icon: 'icon-folder-plus', label: 'New Folder…',
+      emoji: '＋', label: 'New Folder…',
       onClick: () => { closeMoveSheet(); openFolderNameSheet('create', null, ids); },
     });
     newRow.classList.add('new-row');
@@ -1576,7 +1575,7 @@
 
     folders.slice().sort((a, b) => a.name.localeCompare(b.name)).forEach((folder) => {
       moveFolderList.appendChild(buildMoveRow({
-        icon: 'icon-folders', label: folder.name,
+        emoji: '📁', label: folder.name,
         checked: items.length > 0 && items.every((it) => it.folderId === folder.id),
         onClick: () => {
           ids.forEach((id) => assignToFolderSilent(id, folder.id));
@@ -1763,7 +1762,9 @@
   function updateLightboxFavState() {
     const item = lightboxList[lightboxIndex];
     if (!item) return;
-    lightboxFav.classList.toggle('is-favorite', favorites.has(item.id));
+    const isFav = favorites.has(item.id);
+    lightboxFav.classList.toggle('is-favorite', isFav);
+    $('.emoji-icon', lightboxFav).textContent = isFav ? '⭐' : '☆';
   }
 
   function lightboxStep(delta) {
@@ -2090,7 +2091,7 @@
     const isFav = favorites.has(id);
     const favBtn = $('[data-action="favorite"]', contextMenu);
     favBtn.classList.toggle('is-favorite', isFav);
-    $('span', favBtn).textContent = isFav ? 'Remove from Favourites' : 'Add to Favourites';
+    $('[data-fav-label]', favBtn).textContent = isFav ? 'Unfavourite' : 'Favourite';
 
     contextMenu.hidden = false;
     contextMenuBackdrop.hidden = false;
