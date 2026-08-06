@@ -5,6 +5,31 @@ syncs word-by-word lyrics to playback, and can transcribe what's actually
 being said using OpenAI's Whisper API — then let you click any word to jump
 straight to that moment in the audio.
 
+Two builds, same app:
+
+- **`Wavecast.html`** — one self-contained file (HTML + CSS + JS inlined,
+  zero dependencies). This is the one to use in **Koder** or any other
+  mobile code-runner/WebView app: copy this single file onto your phone and
+  open it, no server or other files needed. Touch-optimized (tap targets,
+  touch-drag seek bar, bottom-sheet menu, safe-area insets for the notch/home
+  indicator, no pinch-zoom or pull-to-refresh).
+- **`index.html` + `style.css` + `app.js`** — the same app split into normal
+  files, for running on desktop/web (e.g. via a local server). Functionally
+  identical, just not bundled into one file.
+
+## Running the mobile build in Koder
+
+1. Copy `Wavecast.html` onto your device (AirDrop, iCloud Drive, email to
+   yourself, etc.) or copy/paste its contents into a new file in Koder.
+2. Open it and tap **Run/Preview**.
+3. Tap **Choose Audio File** to load a track from your device.
+4. Tap **☰** for the menu (open lyrics file, paste lyrics, AI settings).
+
+Everything (visualizer, lyrics sync, tap-to-seek, word search) works fully
+offline. AI transcription/summary need network access to `api.openai.com`
+and your own API key (see below) — Koder's WebView allows outbound requests
+like any other browser context.
+
 ## Features
 
 - **Real-time visualizer** — 4 canvas modes (Bars, Radial, Wave, Particles),
