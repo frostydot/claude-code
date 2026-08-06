@@ -8,15 +8,6 @@ server, and it just works. `photo-viewer-standalone.html` is the same app
 merged into a single self-contained file (no separate CSS/JS), for
 environments (like Koder) that run one HTML file.
 
-**Look & feel**: a dark glass UI — blurred sticky header/tab bar, a blue/
-green/gold accent trio, emoji glyphs for every icon, mono-font counters and
-badges, a big 2-icon "Move to Folder / Favourite" grid at the top of every
-item's menu, and fanned deck-of-cards folder previews — modeled on a
-reference app a user shared, ported onto this app's own engine underneath
-(IndexedDB-backed persistence, honest plain-JSON backups, hardened video
-thumbnails, pinch-to-zoom). See "Notes & limitations" for what was
-deliberately *not* carried over from that reference.
-
 ## Features
 
 - **Bottom tab bar** with five sections: **All**, **Photos**, **Videos**,
@@ -171,11 +162,3 @@ at import time.
 
 - This is a *viewer*, not a media library manager — it doesn't move, copy,
   or write files anywhere on your device. It only reads what you pick.
-- The reference app's *look* was ported over in full, but two of its
-  patterns were deliberately left out: its folder data was stored in a
-  single "encrypted vault" file — really just AES-GCM with the key hardcoded
-  in the page's own JS, so it's not meaningfully secret — this app keeps the
-  honest plain-JSON backup described above instead; and it renames/creates
-  folders via the browser's native `prompt()` dialog, which this app
-  replaces with the same in-app bottom sheet used everywhere else, styled
-  to match.
