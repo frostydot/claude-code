@@ -1,0 +1,265 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#000000">
+<title>Photos</title>
+<link rel="stylesheet" href="styles.css">
+</head>
+<body>
+
+<!-- ============ Icon sprite (single art style used everywhere) ============ -->
+<svg style="display:none" aria-hidden="true">
+  <symbol id="icon-all" viewBox="0 0 24 24"><rect x="3" y="3" width="7" height="7" rx="1.6"/><rect x="14" y="3" width="7" height="7" rx="1.6"/><rect x="3" y="14" width="7" height="7" rx="1.6"/><rect x="14" y="14" width="7" height="7" rx="1.6"/></symbol>
+  <symbol id="icon-photos" viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="16" rx="2"/><circle cx="8.5" cy="9.5" r="1.8"/><path d="M21 16l-5.5-5.5a1.5 1.5 0 0 0-2.1 0L3 20"/></symbol>
+  <symbol id="icon-videos" viewBox="0 0 24 24"><rect x="3" y="5" width="14" height="14" rx="2"/><path d="M17 9.5l4-2.3v9.6l-4-2.3"/></symbol>
+  <symbol id="icon-favorites" viewBox="0 0 24 24"><path d="M12 20.5s-7.5-4.6-10-9.4C0.3 7.8 2 4 5.8 4c2.2 0 3.7 1.3 4.5 2.4C11.1 5.3 12.6 4 14.8 4 18.6 4 20.3 7.8 18.7 11.1c-2.5 4.8-6.7 9.4-6.7 9.4z"/></symbol>
+  <symbol id="icon-folders" viewBox="0 0 24 24"><path d="M3 6.5a1.5 1.5 0 0 1 1.5-1.5H9l2 2.2h8.5A1.5 1.5 0 0 1 21 8.7v9.1A1.7 1.7 0 0 1 19.3 19.5H4.7A1.7 1.7 0 0 1 3 17.8z"/></symbol>
+  <symbol id="icon-plus" viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></symbol>
+  <symbol id="icon-folder-plus" viewBox="0 0 24 24"><path d="M3 6.5a1.5 1.5 0 0 1 1.5-1.5H9l2 2.2h8.5A1.5 1.5 0 0 1 21 8.7v9.1A1.7 1.7 0 0 1 19.3 19.5H4.7A1.7 1.7 0 0 1 3 17.8z"/><path d="M12 10.5v5M9.5 13h5"/></symbol>
+  <symbol id="icon-x" viewBox="0 0 24 24"><path d="M6 6l12 12M18 6L6 18"/></symbol>
+  <symbol id="icon-chevron-left" viewBox="0 0 24 24"><path d="M15 5l-7 7 7 7"/></symbol>
+  <symbol id="icon-chevron-right" viewBox="0 0 24 24"><path d="M9 5l7 7-7 7"/></symbol>
+  <symbol id="icon-play" viewBox="0 0 24 24"><path d="M8 5.5v13l11-6.5z"/></symbol>
+  <symbol id="icon-dots" viewBox="0 0 24 24"><circle cx="5" cy="12" r="1.6"/><circle cx="12" cy="12" r="1.6"/><circle cx="19" cy="12" r="1.6"/></symbol>
+  <symbol id="icon-trash" viewBox="0 0 24 24"><path d="M4 7h16M9 7V5a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2M6 7l1 13a1.5 1.5 0 0 0 1.5 1.4h7A1.5 1.5 0 0 0 17 20l1-13"/></symbol>
+  <symbol id="icon-info" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M12 11v5.5"/><circle cx="12" cy="7.7" r="1"/></symbol>
+  <symbol id="icon-check" viewBox="0 0 24 24"><path d="M5 12.5l4.5 4.5L19 7"/></symbol>
+  <symbol id="icon-pencil" viewBox="0 0 24 24"><path d="M4 20l1-4.2L15.8 5 19 8.2 8.2 19 4 20z"/><path d="M13.5 6.5l4 4"/></symbol>
+  <symbol id="icon-select" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M8 12.5l2.5 2.5L16 9.5"/></symbol>
+  <symbol id="icon-settings" viewBox="0 0 24 24"><circle cx="12" cy="12" r="3.2"/><path d="M19.4 13.5a1.7 1.7 0 0 0 .34 1.87l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.7 1.7 0 0 0-1.87-.34 1.7 1.7 0 0 0-1 1.55V19.6a2 2 0 1 1-4 0v-.09a1.7 1.7 0 0 0-1.1-1.55 1.7 1.7 0 0 0-1.87.34l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.7 1.7 0 0 0 .34-1.87 1.7 1.7 0 0 0-1.55-1H2.4a2 2 0 1 1 0-4h.09a1.7 1.7 0 0 0 1.55-1.1 1.7 1.7 0 0 0-.34-1.87l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.7 1.7 0 0 0 1.87.34H8.5a1.7 1.7 0 0 0 1-1.55V2.4a2 2 0 1 1 4 0v.09a1.7 1.7 0 0 0 1 1.55 1.7 1.7 0 0 0 1.87-.34l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.7 1.7 0 0 0-.34 1.87V8.5a1.7 1.7 0 0 0 1.55 1H21.6a2 2 0 1 1 0 4h-.09a1.7 1.7 0 0 0-1.55 1z"/></symbol>
+  <symbol id="icon-expand" viewBox="0 0 24 24"><path d="M9 4H4v5M15 4h5v5M9 20H4v-5M15 20h5v-5"/></symbol>
+  <symbol id="icon-collapse" viewBox="0 0 24 24"><path d="M4 9h5V4M20 9h-5V4M4 15h5v5M20 15h-5v5"/></symbol>
+  <symbol id="icon-copy" viewBox="0 0 24 24"><rect x="8" y="8" width="12" height="12" rx="2"/><path d="M16 8V6a2 2 0 0 0-2-2H6a2 2 0 0 0-2 2v8a2 2 0 0 0 2 2h2"/></symbol>
+</svg>
+
+<div id="app">
+
+  <header class="topbar">
+    <h1 id="topbarTitle">Photos</h1>
+    <div class="topbar-actions">
+      <button class="text-btn hidden-btn" id="selectAllBtn">Select All</button>
+      <button class="text-btn hidden-btn" id="cancelSelectBtn">Cancel</button>
+      <button class="icon-btn" id="newFolderBtn" aria-label="New folder">
+        <svg class="icon"><use href="#icon-folder-plus"/></svg>
+      </button>
+      <button class="icon-btn" id="selectModeBtn" aria-label="Select items">
+        <svg class="icon"><use href="#icon-select"/></svg>
+      </button>
+      <div class="settings-wrap">
+        <button class="icon-btn" id="settingsBtn" aria-label="Settings">
+          <svg class="icon"><use href="#icon-settings"/></svg>
+        </button>
+        <div class="settings-panel" id="settingsPanel" hidden>
+          <div class="settings-title">Display</div>
+          <div class="segmented" id="gridSizeGroup">
+            <button class="segmented-btn" data-grid="4">Small</button>
+            <button class="segmented-btn active" data-grid="3">Medium</button>
+            <button class="segmented-btn" data-grid="2">Large</button>
+          </div>
+          <div class="settings-title">Preferences</div>
+          <label class="settings-row">
+            <span>Sort by Date Taken</span>
+            <span class="toggle"><input type="checkbox" id="prefExifToggle" checked><span class="toggle-track"></span><span class="toggle-knob"></span></span>
+          </label>
+          <label class="settings-row">
+            <span>Mark Duplicates</span>
+            <span class="toggle"><input type="checkbox" id="prefDupesToggle" checked><span class="toggle-track"></span><span class="toggle-knob"></span></span>
+          </label>
+          <div class="settings-title">Backup</div>
+          <button class="settings-action" id="exportBackupBtn">
+            <svg class="icon"><use href="#icon-copy"/></svg><span>Export Backup</span>
+          </button>
+          <button class="settings-action" id="importBackupBtn">
+            <svg class="icon"><use href="#icon-folder-plus"/></svg><span>Import Backup</span>
+          </button>
+          <p class="settings-hint">Backs up favourites and folders (not the photos/videos themselves) to a file you can re-import here, or on another device.</p>
+        </div>
+      </div>
+      <button class="icon-btn" id="addFilesBtn" aria-label="Add photos or videos">
+        <svg class="icon"><use href="#icon-plus"/></svg>
+      </button>
+    </div>
+  </header>
+
+  <div class="status-bar" id="statusBar" hidden>
+    <span class="status-text" id="statusText"></span>
+    <span class="status-badge" id="statusBadge"></span>
+  </div>
+
+  <input type="file" id="fileInput" accept="image/*,video/*" multiple hidden>
+  <input type="file" id="backupImport" accept=".json" hidden>
+
+  <main id="content">
+    <section class="view grid-view active" data-view="all" id="view-all">
+      <div class="tile-grid"></div>
+      <div class="empty-state" hidden></div>
+    </section>
+
+    <section class="view grid-view" data-view="photos" id="view-photos">
+      <div class="tile-grid"></div>
+      <div class="empty-state" hidden></div>
+    </section>
+
+    <section class="view grid-view" data-view="videos" id="view-videos">
+      <div class="tile-grid"></div>
+      <div class="empty-state" hidden></div>
+    </section>
+
+    <section class="view grid-view" data-view="favorites" id="view-favorites">
+      <div class="tile-grid"></div>
+      <div class="empty-state" hidden></div>
+    </section>
+
+    <section class="view folders-view" data-view="folders" id="view-folders">
+      <div class="folder-grid"></div>
+      <div class="empty-state" hidden></div>
+    </section>
+
+    <section class="view grid-view" data-view="folder-detail" id="view-folder-detail">
+      <button class="back-btn" id="folderBackBtn">
+        <svg class="icon"><use href="#icon-chevron-left"/></svg>
+        <span>Folders</span>
+      </button>
+      <h2 class="folder-detail-title" id="folderDetailTitle"></h2>
+      <div class="tile-grid"></div>
+      <div class="empty-state" hidden></div>
+    </section>
+  </main>
+
+  <nav class="tabbar" id="mainTabbar">
+    <button class="tab-btn active" data-tab="all">
+      <svg class="icon"><use href="#icon-all"/></svg>
+      <span>All</span>
+    </button>
+    <button class="tab-btn" data-tab="photos">
+      <svg class="icon"><use href="#icon-photos"/></svg>
+      <span>Photos</span>
+    </button>
+    <button class="tab-btn" data-tab="videos">
+      <svg class="icon"><use href="#icon-videos"/></svg>
+      <span>Videos</span>
+    </button>
+    <button class="tab-btn" data-tab="favorites">
+      <svg class="icon"><use href="#icon-favorites"/></svg>
+      <span>Favourites</span>
+    </button>
+    <button class="tab-btn" data-tab="folders">
+      <svg class="icon"><use href="#icon-folders"/></svg>
+      <span>Folders</span>
+    </button>
+  </nav>
+
+  <!-- Selection action bar — replaces the tab bar while Select mode is on -->
+  <nav class="tabbar" id="selectActionBar" hidden>
+    <button class="tab-btn" id="selectFavBtn" disabled>
+      <svg class="icon"><use href="#icon-favorites"/></svg>
+      <span>Favourite</span>
+    </button>
+    <button class="tab-btn" id="selectMoveBtn" disabled>
+      <svg class="icon"><use href="#icon-folders"/></svg>
+      <span>Move</span>
+    </button>
+    <button class="tab-btn danger-tab" id="selectRemoveBtn" disabled>
+      <svg class="icon"><use href="#icon-trash"/></svg>
+      <span>Remove</span>
+    </button>
+  </nav>
+
+  <!-- Lightbox -->
+  <div class="lightbox" id="lightbox" hidden>
+    <div class="lightbox-header">
+      <button class="icon-btn light" id="lightboxClose" aria-label="Close">
+        <svg class="icon"><use href="#icon-x"/></svg>
+      </button>
+      <span class="lightbox-counter" id="lightboxCounter"></span>
+      <div class="lightbox-header-actions">
+        <button class="icon-btn light" id="lightboxFullscreen" aria-label="Toggle fullscreen">
+          <svg class="icon"><use href="#icon-expand"/></svg>
+        </button>
+        <button class="icon-btn light" id="lightboxFav" aria-label="Toggle favourite">
+          <svg class="icon"><use href="#icon-favorites"/></svg>
+        </button>
+      </div>
+    </div>
+    <div class="lightbox-stage" id="lightboxStage">
+      <button class="lightbox-nav prev" id="lightboxPrev" aria-label="Previous">
+        <svg class="icon"><use href="#icon-chevron-left"/></svg>
+      </button>
+      <div class="lightbox-media" id="lightboxMedia"></div>
+      <button class="lightbox-nav next" id="lightboxNext" aria-label="Next">
+        <svg class="icon"><use href="#icon-chevron-right"/></svg>
+      </button>
+      <div class="zoom-hud" id="zoomHud">100%</div>
+      <button class="cinema-exit" id="cinemaExit" hidden>
+        <svg class="icon"><use href="#icon-collapse"/></svg><span>Exit Fullscreen</span>
+      </button>
+    </div>
+    <div class="lightbox-footer">
+      <div class="lightbox-name" id="lightboxName"></div>
+      <div class="lightbox-meta" id="lightboxMeta"></div>
+    </div>
+  </div>
+
+  <!-- Per-item context menu -->
+  <div class="context-menu" id="contextMenu" hidden>
+    <button data-action="favorite"><svg class="icon"><use href="#icon-favorites"/></svg><span>Add to Favourites</span></button>
+    <button data-action="move"><svg class="icon"><use href="#icon-folders"/></svg><span>Move to Folder</span></button>
+    <button data-action="info"><svg class="icon"><use href="#icon-info"/></svg><span>Info</span></button>
+    <button data-action="remove" class="danger"><svg class="icon"><use href="#icon-trash"/></svg><span>Remove</span></button>
+  </div>
+  <div class="context-menu-backdrop" id="contextMenuBackdrop" hidden></div>
+
+  <!-- Per-folder context menu -->
+  <div class="context-menu" id="folderContextMenu" hidden>
+    <button data-action="rename"><svg class="icon"><use href="#icon-pencil"/></svg><span>Rename</span></button>
+    <button data-action="delete" class="danger"><svg class="icon"><use href="#icon-trash"/></svg><span>Delete Folder</span></button>
+  </div>
+  <div class="context-menu-backdrop" id="folderContextMenuBackdrop" hidden></div>
+
+  <!-- Info panel -->
+  <div class="info-sheet" id="infoSheet" hidden>
+    <div class="info-sheet-inner">
+      <div class="info-sheet-handle"></div>
+      <h3 id="infoName"></h3>
+      <dl id="infoList"></dl>
+      <button class="btn-primary" id="infoClose">Done</button>
+    </div>
+  </div>
+  <div class="info-sheet-backdrop" id="infoSheetBackdrop" hidden></div>
+
+  <!-- New Folder / Rename Folder sheet -->
+  <div class="info-sheet" id="folderNameSheet" hidden>
+    <div class="info-sheet-inner">
+      <div class="info-sheet-handle"></div>
+      <h3 id="folderNameTitle">New Folder</h3>
+      <input type="text" class="text-input" id="folderNameInput" placeholder="Folder name" maxlength="60" autocomplete="off">
+      <div class="sheet-actions">
+        <button class="btn-secondary" id="folderNameCancel">Cancel</button>
+        <button class="btn-primary" id="folderNameCreate">Create</button>
+      </div>
+    </div>
+  </div>
+  <div class="info-sheet-backdrop" id="folderNameBackdrop" hidden></div>
+
+  <!-- Move to Folder sheet -->
+  <div class="info-sheet" id="moveSheet" hidden>
+    <div class="info-sheet-inner">
+      <div class="info-sheet-handle"></div>
+      <h3>Move to Folder</h3>
+      <div class="move-folder-list" id="moveFolderList"></div>
+    </div>
+  </div>
+  <div class="info-sheet-backdrop" id="moveSheetBackdrop" hidden></div>
+
+  <div class="toast" id="toast" hidden>
+    <span class="toast-text" id="toastText"></span>
+    <button class="toast-action" id="toastAction" hidden></button>
+  </div>
+
+</div>
+
+<script src="app.js"></script>
+</body>
+</html>

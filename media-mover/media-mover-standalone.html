@@ -1,0 +1,3233 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8"/>
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"/>
+<meta name="theme-color" content="#000000"/>
+<title>Media Mover</title>
+<style>
+/* =========================================================================
+   Media Mover — wearing the Photos app's design language.
+
+   This is Media Mover's own markup and logic, restyled: one consistent art
+   style across every surface — same font, same spacing scale, same radii,
+   same icon set, same motion — and light/dark adaptive rather than
+   dark-only.
+
+   The class names and CSS custom-property names below are Media Mover's
+   originals on purpose: its JS writes `gallery.style.gridTemplateColumns`,
+   sets `viewer.style.animation = 'fIn ...'`, and injects
+   `color: var(--mut)` inline. Keeping the names means the logic keeps
+   working untouched; only the values changed.
+   ========================================================================= */
+
+:root {
+  /* Apple-style palette, mapped onto Media Mover's variable names */
+  --bg: #f5f5f7;
+  --surf: #ffffff;
+  --surf2: #ffffff;
+  --surf3: #e8e8ed;
+  --bdr: rgba(0, 0, 0, 0.08);
+  --bdr2: rgba(0, 0, 0, 0.14);
+  --acc: #0071e3;
+  --acc2: #5e5ce6;
+  --txt: #1d1d1f;
+  --mut: #86868b;
+  --red: #ff3b30;
+  --fav: #ff375f;
+  --fld: #34c759;
+
+  --blur-bg: rgba(255, 255, 255, 0.72);
+  /* Popovers/menus/toasts float over content, so they carry more opacity than
+     the bars do: `backdrop-filter` isn't reliably supported in embedded
+     WebViews, and without it a 0.72-alpha panel is unreadable over a photo
+     grid. This stays legible on its own and still frosts where supported. */
+  --popover: rgba(255, 255, 255, 0.95);
+  --scrim: rgba(0, 0, 0, 0.55);
+  --shadow-sm: 0 2px 10px rgba(0, 0, 0, 0.06);
+  --shadow-md: 0 8px 30px rgba(0, 0, 0, 0.12);
+
+  --r: 16px;
+  --rs: 10px;
+  --rl: 22px;
+  --pill: 980px;
+
+  --pad: 16px;
+  --safeTop: env(safe-area-inset-top, 0px);
+  --safeBot: env(safe-area-inset-bottom, 0px);
+  --tabH: 58px;
+
+  --ease: cubic-bezier(0.25, 0.1, 0.25, 1);
+  --mono: ui-monospace, 'SF Mono', Menlo, Consolas, monospace;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #000000;
+    --surf: #1c1c1e;
+    --surf2: #1c1c1e;
+    --surf3: #2c2c2e;
+    --bdr: rgba(255, 255, 255, 0.1);
+    --bdr2: rgba(255, 255, 255, 0.16);
+    --txt: #f5f5f7;
+    --mut: #98989d;
+    --blur-bg: rgba(28, 28, 30, 0.72);
+    --popover: rgba(38, 38, 40, 0.96);
+    --scrim: rgba(0, 0, 0, 0.75);
+    --shadow-sm: 0 2px 10px rgba(0, 0, 0, 0.3);
+    --shadow-md: 0 8px 30px rgba(0, 0, 0, 0.5);
+  }
+}
+
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+html { height: 100%; }
+body {
+  background: var(--bg);
+  color: var(--txt);
+  font-family: -apple-system, BlinkMacSystemFont, 'SF Pro Display', 'Segoe UI', Roboto, sans-serif;
+  -webkit-font-smoothing: antialiased;
+  min-height: 100%;
+  padding-bottom: calc(var(--safeBot) + var(--tabH));
+  -webkit-tap-highlight-color: transparent;
+  overscroll-behavior: none;
+}
+
+/* One icon set, drawn from a single sprite, used on every surface. */
+.icon {
+  width: 24px;
+  height: 24px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.8;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  display: block;
+  flex-shrink: 0;
+}
+.icon.fill { fill: currentColor; stroke: none; }
+
+/* ── Header ─────────────────────────────────────────────────────────────── */
+.hdr {
+  position: sticky; top: 0; z-index: 900;
+  background: var(--blur-bg);
+  backdrop-filter: blur(20px) saturate(1.6);
+  -webkit-backdrop-filter: blur(20px) saturate(1.6);
+  padding: calc(var(--safeTop) + 12px) var(--pad) 0;
+  border-bottom: 1px solid var(--bdr);
+}
+.hRow { display: flex; align-items: center; gap: 8px; padding-bottom: 10px; }
+.hNorm { display: flex; align-items: center; gap: 8px; flex: 1; min-width: 0; }
+.hNorm.off { display: none; }
+.hSel { display: none; align-items: center; gap: 6px; flex: 1; min-width: 0; }
+.hSel.on { display: flex; }
+
+.backBtn {
+  width: 40px; height: 40px; border-radius: 50%; flex-shrink: 0;
+  background: none; border: none; color: var(--acc);
+  cursor: pointer; font-family: inherit;
+  display: none; align-items: center; justify-content: center;
+  touch-action: manipulation;
+  transition: background 0.2s var(--ease), transform 0.15s var(--ease);
+}
+.backBtn:active { transform: scale(0.9); background: rgba(0, 113, 227, 0.12); }
+.backBtn.on { display: flex; }
+
+.logo { display: flex; align-items: center; gap: 9px; min-width: 0; flex-shrink: 1; }
+.logo.off { display: none; }
+.lIco {
+  width: 30px; height: 30px; flex-shrink: 0; border-radius: 8px;
+  background: linear-gradient(135deg, var(--acc), var(--acc2));
+  color: #fff;
+  display: flex; align-items: center; justify-content: center;
+  box-shadow: 0 3px 10px rgba(0, 113, 227, 0.3);
+}
+.lIco .icon { width: 18px; height: 18px; }
+h1 {
+  font-size: 22px; font-weight: 700; letter-spacing: -0.02em;
+  white-space: nowrap;
+}
+h1 span { color: var(--acc); }
+
+.hFTitle {
+  font-size: 22px; font-weight: 700; letter-spacing: -0.02em;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  display: none; flex: 1;
+}
+.hFTitle.on { display: block; }
+
+.selCancelBtn, .selAllBtn {
+  height: 44px; padding: 0 6px; flex-shrink: 0;
+  background: none; border: none; color: var(--acc);
+  font-size: 15px; font-weight: 600; font-family: inherit;
+  cursor: pointer; touch-action: manipulation; white-space: nowrap;
+}
+.selCancelBtn:active, .selAllBtn:active { opacity: 0.6; }
+.selCountLbl { flex: 1; text-align: center; font-size: 15px; font-weight: 600; }
+
+.hBtns { display: flex; gap: 4px; align-items: center; flex-shrink: 0; }
+.iBtn {
+  width: 44px; height: 44px; border-radius: 50%;
+  background: none; border: none;
+  display: flex; align-items: center; justify-content: center;
+  cursor: pointer; user-select: none; color: var(--acc);
+  transition: background 0.2s var(--ease), transform 0.15s var(--ease);
+  flex-shrink: 0;
+}
+.iBtn:active { transform: scale(0.9); background: rgba(0, 113, 227, 0.12); }
+.iBtn.on { background: rgba(0, 113, 227, 0.16); }
+
+.topbar { padding-bottom: 12px; }
+.pickBtn {
+  width: 100%; display: flex; align-items: center; justify-content: center; gap: 7px;
+  padding: 13px 18px; background: var(--acc); border: none; border-radius: var(--pill);
+  color: #fff; font-size: 15px; font-weight: 600; font-family: inherit; cursor: pointer;
+  transition: transform 0.15s var(--ease), filter 0.15s var(--ease);
+  touch-action: manipulation;
+}
+.pickBtn:active { transform: scale(0.96); filter: brightness(1.08); }
+.pickBtn .icon { width: 19px; height: 19px; }
+
+/* ── Settings panel ─────────────────────────────────────────────────────── */
+.sWrap { position: relative; }
+#sPanel {
+  position: absolute; right: 0; top: calc(100% + 6px);
+  background: var(--popover);
+  border: 1px solid var(--bdr);
+  backdrop-filter: blur(24px) saturate(1.8); -webkit-backdrop-filter: blur(24px) saturate(1.8);
+  border-radius: var(--r); padding: 8px; display: none;
+  width: 264px; z-index: 1001; box-shadow: var(--shadow-md);
+  max-height: 72vh; overflow-y: auto; scrollbar-width: thin;
+  animation: popIn 0.16s var(--ease) both;
+}
+.sTit {
+  font-size: 10.5px; font-weight: 700; letter-spacing: 0.06em; text-transform: uppercase;
+  color: var(--mut); padding: 10px 8px 6px;
+}
+.sTit:first-child { padding-top: 4px; }
+.sRow {
+  display: flex; align-items: center; justify-content: space-between; gap: 8px;
+  font-size: 13.5px; padding: 9px 8px; border-radius: var(--rs); cursor: pointer;
+}
+.sRow:active { background: rgba(127, 127, 127, 0.1); }
+.sLbl { display: flex; align-items: center; gap: 9px; color: var(--txt); }
+.sIc { display: flex; align-items: center; color: var(--mut); flex-shrink: 0; }
+.sIc .icon { width: 17px; height: 17px; }
+
+.tog { position: relative; width: 40px; height: 24px; flex-shrink: 0; }
+.tog input { opacity: 0; width: 0; height: 0; position: absolute; }
+.togT {
+  position: absolute; inset: 0; background: var(--surf3);
+  border-radius: var(--pill); border: 1px solid var(--bdr);
+  transition: background 0.18s var(--ease), border-color 0.18s var(--ease);
+}
+.togK {
+  position: absolute; top: 3px; left: 3px; width: 16px; height: 16px;
+  background: #fff; border-radius: 50%;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.3);
+  transition: transform 0.18s var(--ease);
+}
+.tog input:checked ~ .togT { background: var(--acc); border-color: var(--acc); }
+.tog input:checked ~ .togK { transform: translateX(16px); }
+
+.sGRow { display: flex; gap: 3px; padding: 0 4px 6px; }
+.sGBtn {
+  flex: 1; padding: 7px 4px; border-radius: 8px; border: 1px solid var(--bdr);
+  background: var(--surf3); color: var(--mut); font-size: 12px; font-weight: 500;
+  font-family: inherit; cursor: pointer; text-align: center; touch-action: manipulation;
+  transition: background 0.12s var(--ease), color 0.12s var(--ease), border-color 0.12s var(--ease);
+}
+.sGBtn.on {
+  background: rgba(0, 113, 227, 0.16); border-color: var(--acc);
+  color: var(--acc); font-weight: 700;
+}
+
+.sActBtn {
+  display: flex; align-items: center; gap: 9px;
+  width: 100%; padding: 10px 8px; border-radius: var(--rs);
+  background: transparent; border: none; color: var(--txt);
+  font-size: 13.5px; font-family: inherit; cursor: pointer; touch-action: manipulation;
+  transition: background 0.1s var(--ease);
+}
+.sActBtn:active { background: rgba(127, 127, 127, 0.1); }
+.sActBtn .sIc { width: 20px; justify-content: center; }
+
+.sHint {
+  margin-top: 4px; padding: 8px 8px 2px; font-size: 11.5px;
+  color: var(--mut); line-height: 1.5; border-top: 1px solid var(--bdr);
+}
+
+/* ── Status bar ─────────────────────────────────────────────────────────── */
+.statBar {
+  display: flex; align-items: center; gap: 9px;
+  margin: 10px var(--pad) 0; padding: 9px 13px;
+  background: var(--surf); border: 1px solid var(--bdr);
+  border-radius: var(--r); font-size: 13px; color: var(--mut); min-height: 40px;
+  box-shadow: var(--shadow-sm);
+  transition: border-color 0.2s var(--ease);
+}
+.statBar.has { color: var(--txt); }
+.stIco { display: flex; align-items: center; color: var(--mut); flex-shrink: 0; }
+.stIco .icon { width: 16px; height: 16px; }
+.stTxt { flex: 1; }
+.stBadge {
+  font-family: var(--mono); font-size: 11px; font-weight: 600;
+  padding: 3px 8px; background: var(--surf3);
+  border-radius: var(--pill); color: var(--mut); white-space: nowrap;
+}
+
+/* ── Gallery ────────────────────────────────────────────────────────────── */
+.gWrap { padding: 12px var(--pad) 0; }
+.grid { display: grid; gap: 3px; grid-template-columns: repeat(auto-fill, minmax(104px, 1fr)); }
+
+.tile {
+  position: relative; border-radius: var(--rs); overflow: hidden;
+  background: var(--surf3); border: none; cursor: pointer;
+  touch-action: manipulation;
+  contain: content;
+  /* Offscreen tiles are skipped entirely by layout/paint — on a 1000-item
+     grid this cuts rendering work to just the visible screenful. The fixed
+     aspect-ratio lets size containment work without scroll jumping. */
+  aspect-ratio: 1 / 1;
+  content-visibility: auto;
+  contain-intrinsic-size: auto 140px;
+  animation: tileIn 0.32s var(--ease) both;
+  transition: transform 0.15s var(--ease);
+}
+.tile:active { transform: scale(0.97); }
+.tile:hover .ovl { opacity: 1; }
+.tile.selected { box-shadow: inset 0 0 0 3px var(--acc); }
+.tile.selected::after {
+  content: ''; position: absolute; inset: 0;
+  background: rgba(0, 113, 227, 0.18); pointer-events: none;
+}
+@keyframes tileIn {
+  from { opacity: 0; transform: scale(0.94); }
+  to { opacity: 1; transform: scale(1); }
+}
+
+.tImg {
+  width: 100%; aspect-ratio: 1/1; object-fit: cover; display: block;
+  user-select: none; -webkit-user-drag: none;
+  opacity: 0; transition: opacity 0.25s var(--ease);
+}
+.tImg.loaded { opacity: 1; }
+
+.ovl {
+  position: absolute; inset: 0; pointer-events: none; opacity: 0;
+  background: linear-gradient(to top, rgba(0, 0, 0, 0.45) 0%, transparent 55%);
+  transition: opacity 0.15s var(--ease);
+}
+
+/* Photos don't need a badge announcing they're photos — only video, which
+   genuinely changes what tapping the tile does, is worth marking. */
+.badge {
+  position: absolute; left: 4px; bottom: 4px;
+  display: flex; align-items: center; gap: 3px;
+  font-size: 11px; font-weight: 600;
+  padding: 3px 7px; border-radius: var(--pill);
+  backdrop-filter: blur(6px); pointer-events: none;
+}
+.bImg { display: none; }
+.bVid { background: rgba(0, 0, 0, 0.5); color: #fff; }
+
+.bDup {
+  position: absolute; top: 4px; right: 4px; font-size: 10px; font-weight: 700;
+  letter-spacing: 0.03em; padding: 3px 7px; border-radius: var(--pill);
+  background: rgba(255, 59, 48, 0.82); color: #fff; pointer-events: none;
+  backdrop-filter: blur(6px);
+}
+.favSt {
+  position: absolute; bottom: 5px; right: 5px;
+  display: flex; align-items: center; justify-content: center;
+  color: var(--fav); pointer-events: none;
+  filter: drop-shadow(0 1px 3px rgba(0, 0, 0, 0.45));
+}
+.favSt .icon { width: 17px; height: 17px; fill: var(--fav); stroke: var(--fav); }
+.fldSt {
+  position: absolute; top: 5px; left: 5px;
+  display: flex; align-items: center; justify-content: center;
+  width: 22px; height: 22px; border-radius: 50%;
+  background: rgba(0, 0, 0, 0.42); backdrop-filter: blur(6px);
+  color: #fff; pointer-events: none;
+}
+.fldSt .icon { width: 13px; height: 13px; }
+.plIco {
+  position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%);
+  width: 34px; height: 34px;
+  background: rgba(0, 0, 0, 0.42); border-radius: 50%;
+  backdrop-filter: blur(6px);
+  display: flex; align-items: center; justify-content: center; pointer-events: none;
+}
+.plIco svg { width: 12px; height: 12px; fill: #fff; margin-left: 2px; }
+
+.tCheck {
+  position: absolute; top: 6px; right: 6px;
+  width: 24px; height: 24px; border-radius: 50%;
+  border: 2px solid rgba(255, 255, 255, 0.85); background: rgba(0, 0, 0, 0.25);
+  display: none; align-items: center; justify-content: center;
+  backdrop-filter: blur(4px); pointer-events: none;
+  transition: background 0.12s var(--ease), border-color 0.12s var(--ease), transform 0.12s var(--ease);
+}
+.selMode .tCheck { display: flex; }
+.tile.selected .tCheck { background: var(--acc); border-color: var(--acc); transform: scale(1.05); }
+.tile.selected .tCheck::after {
+  content: ''; width: 11px; height: 6px;
+  border-left: 2.5px solid #fff; border-bottom: 2.5px solid #fff;
+  transform: rotate(-45deg) translate(1px, -1px);
+}
+
+/* ── Empty state ────────────────────────────────────────────────────────── */
+.empty, .fvEmpty {
+  display: flex; flex-direction: column; align-items: center; justify-content: center;
+  padding: 64px 32px; text-align: center; gap: 8px;
+  animation: fadeUp 0.35s var(--ease) both;
+}
+@keyframes fadeUp {
+  from { opacity: 0; transform: translateY(14px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+.eIco { color: var(--mut); opacity: 0.5; margin-bottom: 8px; }
+.eIco .icon { width: 52px; height: 52px; stroke-width: 1.3; }
+.eTit { font-size: 19px; font-weight: 600; color: var(--txt); }
+.eHint { font-size: 15px; color: var(--mut); line-height: 1.5; max-width: 280px; }
+
+/* ── Folder list view ───────────────────────────────────────────────────── */
+.folderView { display: none; padding: 12px var(--pad) 0; }
+.folderView.on { display: block; }
+
+.fvTopRow { display: flex; gap: 8px; margin-bottom: 12px; }
+.fvTopBtn {
+  flex: 1; padding: 11px 8px; border-radius: var(--r);
+  background: var(--surf); border: 1px solid var(--bdr);
+  color: var(--txt); font-size: 13.5px; font-weight: 500; font-family: inherit; cursor: pointer;
+  display: flex; align-items: center; justify-content: center; gap: 7px;
+  box-shadow: var(--shadow-sm);
+  transition: transform 0.15s var(--ease); touch-action: manipulation;
+}
+.fvTopBtn:active { transform: scale(0.97); }
+.fvTopBtn .icon { width: 17px; height: 17px; }
+.fvTopBtn.grn { color: var(--fld); }
+.fvTopBtn.acc { color: var(--acc); }
+
+.fvNew {
+  width: 100%; display: flex; align-items: center; gap: 10px;
+  padding: 14px 16px; border-radius: var(--r);
+  background: var(--surf); border: 1.5px dashed var(--bdr2);
+  color: var(--acc); font-size: 15px; font-weight: 500; font-family: inherit; cursor: pointer;
+  transition: background 0.12s var(--ease), border-color 0.12s var(--ease);
+  touch-action: manipulation; margin-bottom: 12px;
+}
+.fvNew:active { background: var(--surf3); border-color: var(--acc); }
+.fvNew .icon { width: 19px; height: 19px; }
+
+#fvCards { display: grid; grid-template-columns: repeat(2, 1fr); gap: var(--pad); }
+
+.fCard {
+  position: relative;
+  display: flex; flex-direction: column; align-items: center;
+  padding: var(--pad) 8px; border-radius: var(--rl);
+  background: var(--surf);
+  border: 1px solid var(--bdr);
+  box-shadow: var(--shadow-sm);
+  cursor: pointer; touch-action: manipulation;
+  transition: transform 0.18s var(--ease), box-shadow 0.18s var(--ease);
+  animation: tileIn 0.32s var(--ease) both;
+}
+.fCard:active { transform: scale(0.97); box-shadow: var(--shadow-md); }
+
+/* Up to three of the folder's newest items, fanned out like a spread deck
+   of cards. */
+.fcArc {
+  position: relative; width: 100%; height: 108px;
+  display: flex; align-items: center; justify-content: center;
+  margin-bottom: 12px; flex-shrink: 0;
+}
+.fcArcImg {
+  position: absolute; width: 62px; height: 82px; border-radius: 8px;
+  object-fit: cover; background: var(--surf3);
+  border: 3px solid var(--surf);
+  box-shadow: 0 3px 10px rgba(0, 0, 0, 0.18);
+  opacity: 0; transition: opacity 0.25s var(--ease);
+  transform-origin: bottom center;
+}
+.fcArcImg.loaded { opacity: 1; }
+.fcArc.n1 .fcArcImg { transform: none; z-index: 2; }
+.fcArc.n2 .fcArcImg:nth-child(1) { transform: rotate(-9deg)  translateX(-16px); z-index: 1; }
+.fcArc.n2 .fcArcImg:nth-child(2) { transform: rotate(9deg)   translateX(16px);  z-index: 2; }
+.fcArc.n3 .fcArcImg:nth-child(1) { transform: rotate(-13deg) translateX(-28px); z-index: 1; }
+.fcArc.n3 .fcArcImg:nth-child(2) { transform: rotate(0deg)   translateY(-4px);  z-index: 3; }
+.fcArc.n3 .fcArcImg:nth-child(3) { transform: rotate(13deg)  translateX(28px);  z-index: 2; }
+.fcArcIco { color: var(--mut); opacity: 0.4; display: flex; }
+.fcArcIco .icon { width: 44px; height: 44px; }
+
+.fcName {
+  font-size: 15px; font-weight: 600; text-align: center;
+  max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.fcMeta { font-size: 12.5px; color: var(--mut); margin-top: 2px; text-align: center; }
+
+.fcMoreBtn {
+  position: absolute; top: 8px; right: 8px;
+  width: 30px; height: 30px; border-radius: 50%; flex-shrink: 0;
+  background: none; border: none; color: var(--mut);
+  cursor: pointer; display: flex; align-items: center; justify-content: center;
+  font-family: inherit; touch-action: manipulation;
+  transition: background 0.15s var(--ease), transform 0.15s var(--ease);
+}
+.fcMoreBtn:active { transform: scale(0.85); background: rgba(127, 127, 127, 0.15); }
+.fcMoreBtn .icon { width: 16px; height: 16px; }
+
+/* ── Tab bar ────────────────────────────────────────────────────────────── */
+.tabBar {
+  position: fixed; bottom: 0; left: 0; right: 0;
+  height: calc(var(--tabH) + var(--safeBot));
+  padding-bottom: var(--safeBot);
+  background: var(--blur-bg);
+  backdrop-filter: blur(20px) saturate(1.6); -webkit-backdrop-filter: blur(20px) saturate(1.6);
+  border-top: 1px solid var(--bdr);
+  display: flex; align-items: stretch;
+  z-index: 800;
+  transition: transform 0.22s var(--ease);
+}
+.tabBar.hidden { transform: translateY(100%); pointer-events: none; }
+
+.tab {
+  flex: 1; display: flex; flex-direction: column;
+  align-items: center; justify-content: center; gap: 3px;
+  background: none; border: none; color: var(--mut);
+  font-family: inherit; cursor: pointer; touch-action: manipulation;
+  transition: color 0.18s var(--ease); padding: 6px 2px 3px; position: relative;
+}
+.tab.on { color: var(--acc); }
+.tab.on .icon { transform: translateY(-1px) scale(1.05); }
+.tab:active .icon { transform: scale(0.88); }
+.tab .tIco { display: flex; }
+.tab .tIco .icon { width: 25px; height: 25px; transition: transform 0.18s var(--ease); }
+.tab .tLbl { font-size: 10.5px; font-weight: 600; letter-spacing: -0.01em; }
+.tab[data-tab="fav"].on { color: var(--fav); }
+.tab[data-tab="fav"].on .icon { fill: var(--fav); stroke: var(--fav); }
+.tab .tDot {
+  position: absolute; top: 6px; right: calc(50% - 15px);
+  width: 6px; height: 6px; border-radius: 50%;
+  background: var(--fld); display: none;
+}
+.tab .tDot.on { display: block; }
+
+/* ── Multi-select action bar ────────────────────────────────────────────── */
+.actBar {
+  position: fixed; bottom: 0; left: 0; right: 0;
+  height: calc(var(--tabH) + var(--safeBot));
+  padding-bottom: var(--safeBot);
+  background: var(--blur-bg);
+  backdrop-filter: blur(20px) saturate(1.6); -webkit-backdrop-filter: blur(20px) saturate(1.6);
+  border-top: 1px solid var(--bdr);
+  display: none; align-items: stretch; z-index: 820;
+}
+.actBar.on { display: flex; }
+.actBtn {
+  flex: 1; display: flex; flex-direction: column;
+  align-items: center; justify-content: center; gap: 3px;
+  background: none; border: none; color: var(--acc);
+  font-family: inherit; cursor: pointer; touch-action: manipulation;
+  padding: 6px 2px 3px;
+  transition: opacity 0.12s var(--ease);
+}
+.actBtn:active { opacity: 0.6; }
+.actBtn:disabled { opacity: 0.35; pointer-events: none; }
+.actBtn .icon { width: 25px; height: 25px; }
+.actBtn .aLbl { font-size: 10.5px; font-weight: 600; }
+.actBtn.red { color: var(--red); }
+.actBtn.grn { color: var(--fld); }
+
+/* ── Viewer ─────────────────────────────────────────────────────────────── */
+.viewer {
+  position: fixed; inset: 0; background: #000;
+  display: none; flex-direction: column; z-index: 2000;
+  padding-top: var(--safeTop);
+}
+.viewer.open { display: flex; }
+.vTop {
+  display: flex; align-items: center; justify-content: space-between;
+  padding: 8px 8px; gap: 8px; flex-shrink: 0;
+  transition: opacity 0.16s var(--ease);
+}
+.vBtn {
+  height: 44px; min-width: 44px; padding: 0 10px;
+  background: none; border: none; border-radius: 50%;
+  color: #fff; font-size: 15px; font-weight: 600; font-family: inherit; cursor: pointer;
+  display: flex; align-items: center; justify-content: center; gap: 5px;
+  white-space: nowrap; user-select: none; touch-action: manipulation;
+  transition: background 0.15s var(--ease), transform 0.15s var(--ease);
+}
+.vBtn:active { transform: scale(0.9); background: rgba(255, 255, 255, 0.14); }
+.vBtn.favOn { color: var(--fav); }
+.vBtn.favOn .icon { fill: var(--fav); stroke: var(--fav); }
+.vNavBtn { width: 44px; padding: 0; }
+.vNavBtn:disabled { opacity: 0.25; pointer-events: none; }
+.vBR { display: flex; gap: 2px; align-items: center; }
+.vCtr { font-size: 13px; font-weight: 600; color: rgba(255, 255, 255, 0.7); min-width: 52px; text-align: center; }
+
+.vStage {
+  flex: 1; display: flex; justify-content: center; align-items: center;
+  overflow: hidden; touch-action: none; position: relative; min-height: 0;
+}
+#vCon { width: 100%; height: 100%; display: flex; justify-content: center; align-items: center; }
+#zImg {
+  max-width: 100%; max-height: 100%; display: block;
+  will-change: transform;
+  backface-visibility: hidden; -webkit-backface-visibility: hidden;
+  transform-origin: center center;
+  user-select: none; -webkit-user-drag: none; cursor: grab;
+  border-radius: 4px;
+}
+#zImg.pan { cursor: grabbing; }
+#vVid { max-width: 100%; max-height: 100%; border-radius: 4px; display: block; }
+
+#zHUD {
+  position: absolute; top: 10px; left: 50%; transform: translateX(-50%);
+  background: rgba(0, 0, 0, 0.6); border: 1px solid rgba(255, 255, 255, 0.14);
+  backdrop-filter: blur(10px); color: #fff; font-family: var(--mono); font-size: 12px;
+  font-weight: 600; padding: 5px 13px; border-radius: var(--pill);
+  pointer-events: none; opacity: 0; transition: opacity 0.25s var(--ease);
+  white-space: nowrap; z-index: 4;
+}
+#zHUD.vis { opacity: 1; }
+
+/* Zoom controls collapse to a small frosted pill and expand to − % + */
+#zTab {
+  position: absolute; bottom: 14px; right: 14px; z-index: 4;
+  display: flex; align-items: center; flex-direction: row-reverse;
+  background: rgba(255, 255, 255, 0.14); border: 1px solid rgba(255, 255, 255, 0.16);
+  backdrop-filter: blur(14px); -webkit-backdrop-filter: blur(14px);
+  border-radius: var(--pill); overflow: hidden;
+}
+#zTabBtn {
+  width: 40px; height: 40px; flex-shrink: 0;
+  background: transparent; border: none; color: rgba(255, 255, 255, 0.9);
+  cursor: pointer; display: flex; align-items: center; justify-content: center;
+  transition: transform 0.25s var(--ease), color 0.15s var(--ease);
+  touch-action: manipulation;
+}
+#zTabBtn .icon { width: 18px; height: 18px; }
+#zTab.open #zTabBtn { transform: rotate(90deg); color: #fff; }
+#zCtrls {
+  display: flex; align-items: center;
+  max-width: 0; opacity: 0;
+  transition: max-width 0.28s var(--ease), opacity 0.18s var(--ease);
+}
+#zTab.open #zCtrls { max-width: 150px; opacity: 1; }
+.zbBtn {
+  width: 38px; height: 38px; border-radius: 50%; background: transparent; border: none;
+  color: #fff; font-size: 19px; cursor: pointer; font-family: inherit; line-height: 1;
+  display: flex; align-items: center; justify-content: center;
+  transition: background 0.12s var(--ease); touch-action: manipulation; flex-shrink: 0;
+}
+.zbBtn:active { background: rgba(255, 255, 255, 0.18); }
+.zbBtn:disabled { opacity: 0.3; pointer-events: none; }
+#zLvl {
+  font-family: var(--mono); font-size: 11px; font-weight: 600;
+  color: rgba(255, 255, 255, 0.85); min-width: 46px; text-align: center;
+  background: transparent; border: none; cursor: pointer; padding: 0 2px;
+  height: 38px; touch-action: manipulation; flex-shrink: 0;
+}
+#zLvl:active { color: #fff; }
+
+#cinemaExit {
+  position: absolute; bottom: 16px; left: 50%; transform: translateX(-50%);
+  background: rgba(255, 255, 255, 0.16); border: 1px solid rgba(255, 255, 255, 0.18);
+  color: #fff; font-size: 13px; font-weight: 500; font-family: inherit;
+  padding: 10px 20px; border-radius: var(--pill); cursor: pointer;
+  backdrop-filter: blur(12px); z-index: 5; display: none; white-space: nowrap;
+  align-items: center; gap: 7px;
+  user-select: none; touch-action: manipulation;
+}
+#cinemaExit .icon { width: 15px; height: 15px; }
+.viewer.cinema #cinemaExit { display: flex; animation: slUp 0.25s var(--ease) both; }
+.viewer.cinema #zTab { bottom: 80px; }
+.viewer.cinema .vTop, .viewer.cinema .vInfo { opacity: 0; pointer-events: none; }
+
+.vInfo {
+  padding: 10px 16px calc(14px + var(--safeBot));
+  display: flex; justify-content: space-between; align-items: center;
+  gap: 12px; flex-shrink: 0;
+  transition: opacity 0.16s var(--ease);
+}
+.vIN { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 14px; font-weight: 600; color: #fff; flex: 1; }
+.vIS { font-size: 12.5px; color: rgba(255, 255, 255, 0.55); flex-shrink: 0; }
+
+/* ── Context menu ───────────────────────────────────────────────────────── */
+/* Dimmed modal backdrop shared by the item context menu (#ctx) and the
+   folder options menu (#fldCtx) — only one of the two is ever open, so
+   both simply toggle the same overlay to keep focus on the menu itself. */
+#ctxBackdrop {
+  position: fixed; inset: 0; z-index: 2999;
+  background: var(--scrim);
+  opacity: 0; pointer-events: none;
+  transition: opacity 0.2s var(--ease);
+}
+#ctxBackdrop.show { opacity: 1; pointer-events: auto; }
+
+#ctx, #fldCtx {
+  position: fixed; left: 0; top: 0;
+  background: var(--popover);
+  backdrop-filter: blur(24px) saturate(1.8); -webkit-backdrop-filter: blur(24px) saturate(1.8);
+  border: 1px solid var(--bdr);
+  border-radius: var(--r); padding: 6px; display: none;
+  z-index: 3000; min-width: 210px;
+  box-shadow: var(--shadow-md);
+  transform: translate(-9999px, -9999px);
+}
+
+/* The two most common things you'd do with a photo get a large 2-up icon
+   grid, one tap away, with everything else demoted to the list below. */
+.ctxBigRow { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; padding: 4px 4px 8px; }
+.ctxBig {
+  display: flex; flex-direction: column; align-items: center; justify-content: center;
+  gap: 7px; padding: 16px 8px; border-radius: 14px;
+  background: var(--surf3); border: none;
+  color: var(--txt); font-family: inherit; cursor: pointer;
+  transition: background 0.12s var(--ease), transform 0.1s var(--ease);
+  touch-action: manipulation;
+}
+.ctxBig:active { transform: scale(0.96); }
+.ctxBig .cIco { width: auto; display: flex; }
+.ctxBig .cIco .icon { width: 24px; height: 24px; }
+.ctxBig .cbLbl { font-size: 12.5px; font-weight: 600; text-align: center; }
+.ctxBig.grn { color: var(--fld); }
+.ctxBig.ctxFavOn { color: var(--fav); }
+.ctxBig.ctxFavOn .icon { fill: var(--fav); stroke: var(--fav); }
+
+.cBtn {
+  width: 100%; text-align: left; padding: 11px 12px; border-radius: var(--rs);
+  background: transparent; border: none; color: var(--txt);
+  font-size: 15px; font-weight: 500; font-family: inherit; cursor: pointer;
+  display: flex; align-items: center; gap: 10px;
+  transition: background 0.1s var(--ease); touch-action: manipulation;
+}
+.cBtn:active { background: rgba(127, 127, 127, 0.15); }
+.cBtn.red { color: var(--red); }
+.cBtn.grn { color: var(--fld); }
+.cDiv { height: 1px; background: var(--bdr); margin: 4px 0; }
+.cIco { width: 20px; display: flex; align-items: center; justify-content: center; flex-shrink: 0; color: var(--mut); }
+.cIco .icon { width: 18px; height: 18px; }
+.cBtn.red .cIco, .cBtn.grn .cIco { color: inherit; }
+
+#fldCtx { min-width: 264px; }
+
+/* Folder icons stay emoji — that's user-chosen content, not app chrome. */
+.emojiPickerRow { padding: 6px 8px 8px; border-bottom: 1px solid var(--bdr); margin-bottom: 4px; }
+.emojiPickerLabel {
+  font-size: 10.5px; font-weight: 700; letter-spacing: 0.06em; text-transform: uppercase;
+  color: var(--mut); margin-bottom: 7px; display: block;
+}
+.emojiGrid { display: grid; grid-template-columns: repeat(7, 1fr); gap: 3px; }
+.emojiBtn {
+  width: 100%; aspect-ratio: 1/1; border-radius: 8px; border: 1.5px solid transparent;
+  background: var(--surf3); font-size: 17px; cursor: pointer;
+  display: flex; align-items: center; justify-content: center;
+  transition: background 0.1s var(--ease), border-color 0.1s var(--ease);
+  touch-action: manipulation; line-height: 1;
+}
+.emojiBtn:active { background: rgba(127, 127, 127, 0.2); }
+.emojiBtn.active { border-color: var(--acc); background: rgba(0, 113, 227, 0.14); }
+
+/* ── Folder picker sheet ────────────────────────────────────────────────── */
+#fldPicker {
+  position: fixed; inset: 0; z-index: 4000;
+  background: var(--scrim);
+  display: none; align-items: flex-end; justify-content: center;
+}
+#fldPicker.open { display: flex; animation: fIn 0.2s var(--ease) both; }
+.fpBox {
+  background: var(--surf); border: none;
+  border-radius: 20px 20px 0 0; width: 100%; max-width: 500px;
+  padding: 8px var(--pad) calc(var(--pad) + var(--safeBot));
+  box-shadow: var(--shadow-md);
+  animation: sheetUp 0.28s var(--ease) both; max-height: 72vh; display: flex; flex-direction: column;
+}
+/* Grabber, matching every other sheet in the app */
+.fpBox::before {
+  content: ''; display: block; width: 36px; height: 5px; flex-shrink: 0;
+  border-radius: var(--pill); background: var(--bdr2);
+  margin: 8px auto 14px;
+}
+.fpTit {
+  font-size: 18px; font-weight: 700; color: var(--txt);
+  padding: 0 2px 12px; flex-shrink: 0;
+}
+.fpScroll { overflow-y: auto; flex: 1; scrollbar-width: thin; }
+.fpItem {
+  display: flex; align-items: center; gap: 10px;
+  padding: 12px 8px; border-radius: var(--rs); cursor: pointer;
+  font-size: 15px; font-weight: 500; transition: background 0.1s var(--ease); touch-action: manipulation;
+}
+.fpItem:active { background: rgba(127, 127, 127, 0.15); }
+.fpItem .fpN { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.fpItem .fpC { font-size: 12.5px; color: var(--mut); }
+.fpNew {
+  display: flex; align-items: center; gap: 10px;
+  padding: 12px 8px; border-radius: var(--rs); cursor: pointer;
+  font-size: 15px; font-weight: 500; color: var(--acc);
+  border-top: 1px solid var(--bdr); margin-top: 4px;
+  transition: background 0.1s var(--ease); touch-action: manipulation; flex-shrink: 0;
+}
+.fpNew:active { background: rgba(0, 113, 227, 0.1); }
+.fpNew .icon { width: 19px; height: 19px; }
+.fpCancel {
+  width: 100%; padding: 13px; margin-top: 8px; flex-shrink: 0;
+  background: var(--surf3); border: none; border-radius: var(--pill);
+  color: var(--txt); font-size: 15px; font-weight: 600; font-family: inherit;
+  cursor: pointer; touch-action: manipulation;
+  transition: transform 0.15s var(--ease), filter 0.15s var(--ease);
+}
+.fpCancel:active { transform: scale(0.96); filter: brightness(0.95); }
+
+/* ── Toast ──────────────────────────────────────────────────────────────── */
+#toast {
+  position: fixed; bottom: calc(var(--safeBot) + var(--tabH) + 14px); left: 50%;
+  transform: translateX(-50%) translateY(8px);
+  background: var(--popover);
+  backdrop-filter: blur(24px) saturate(1.8); -webkit-backdrop-filter: blur(24px) saturate(1.8);
+  border: 1px solid var(--bdr);
+  color: var(--txt); padding: 10px 18px; border-radius: var(--pill);
+  font-size: 13.5px; font-weight: 500; z-index: 5000;
+  display: flex; align-items: center; gap: 14px;
+  opacity: 0; pointer-events: none; transition: opacity 0.2s var(--ease), transform 0.2s var(--ease);
+  white-space: nowrap; box-shadow: var(--shadow-md);
+  max-width: calc(100% - 32px);
+}
+#toast.show { opacity: 1; pointer-events: auto; transform: translateX(-50%) translateY(0); }
+.toastAct {
+  background: none; border: none; color: var(--acc);
+  font-size: 13.5px; font-weight: 700; font-family: inherit; cursor: pointer;
+  padding: 4px 2px; touch-action: manipulation;
+}
+.toastAct:active { opacity: 0.6; }
+
+/* ── Animations ─────────────────────────────────────────────────────────── */
+/* fIn / fOut are referenced by name from app.js (viewer.style.animation). */
+@keyframes fIn  { from { opacity: 0; } to { opacity: 1; } }
+@keyframes fOut { from { opacity: 1; } to { opacity: 0; } }
+@keyframes sIn  { from { opacity: 0; transform: scale(0.92) translateY(-4px); } to { opacity: 1; transform: scale(1) translateY(0); } }
+@keyframes popIn { from { opacity: 0; transform: scale(0.92) translateY(-4px); } to { opacity: 1; transform: scale(1) translateY(0); } }
+@keyframes sheetUp { from { transform: translateY(100%); } to { transform: translateY(0); } }
+@keyframes slUp { from { opacity: 0; transform: translateX(-50%) translateY(10px); } to { opacity: 1; transform: translateX(-50%) translateY(0); } }
+.sIn { animation: sIn 0.16s var(--ease) both; }
+
+/* ── Responsive ─────────────────────────────────────────────────────────── */
+@media (min-width: 720px) {
+  #fvCards { grid-template-columns: repeat(3, 1fr); }
+  .grid { gap: 4px; }
+}
+
+@media (max-width: 360px) {
+  h1, .hFTitle { font-size: 19px; }
+  #sPanel { width: 232px; }
+  .fcArc { height: 92px; }
+  .fcArcImg { width: 54px; height: 72px; }
+  .fcArc.n2 .fcArcImg:nth-child(1) { transform: rotate(-9deg)  translateX(-13px); }
+  .fcArc.n2 .fcArcImg:nth-child(2) { transform: rotate(9deg)   translateX(13px); }
+  .fcArc.n3 .fcArcImg:nth-child(1) { transform: rotate(-13deg) translateX(-22px); }
+  .fcArc.n3 .fcArcImg:nth-child(2) { transform: rotate(0deg)   translateY(-4px); }
+  .fcArc.n3 .fcArcImg:nth-child(3) { transform: rotate(13deg)  translateX(22px); }
+}
+
+</style>
+</head>
+<body>
+
+<!-- ============ Icon sprite (single art style used everywhere) ============ -->
+<svg style="display:none" aria-hidden="true">
+  <symbol id="icon-all" viewBox="0 0 24 24"><rect x="3" y="3" width="7" height="7" rx="1.6"/><rect x="14" y="3" width="7" height="7" rx="1.6"/><rect x="3" y="14" width="7" height="7" rx="1.6"/><rect x="14" y="14" width="7" height="7" rx="1.6"/></symbol>
+  <symbol id="icon-photos" viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="16" rx="2"/><circle cx="8.5" cy="9.5" r="1.8"/><path d="M21 16l-5.5-5.5a1.5 1.5 0 0 0-2.1 0L3 20"/></symbol>
+  <symbol id="icon-videos" viewBox="0 0 24 24"><rect x="3" y="5" width="14" height="14" rx="2"/><path d="M17 9.5l4-2.3v9.6l-4-2.3"/></symbol>
+  <symbol id="icon-favorites" viewBox="0 0 24 24"><path d="M12 20.5s-7.5-4.6-10-9.4C0.3 7.8 2 4 5.8 4c2.2 0 3.7 1.3 4.5 2.4C11.1 5.3 12.6 4 14.8 4 18.6 4 20.3 7.8 18.7 11.1c-2.5 4.8-6.7 9.4-6.7 9.4z"/></symbol>
+  <symbol id="icon-folders" viewBox="0 0 24 24"><path d="M3 6.5a1.5 1.5 0 0 1 1.5-1.5H9l2 2.2h8.5A1.5 1.5 0 0 1 21 8.7v9.1A1.7 1.7 0 0 1 19.3 19.5H4.7A1.7 1.7 0 0 1 3 17.8z"/></symbol>
+  <symbol id="icon-plus" viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></symbol>
+  <symbol id="icon-folder-plus" viewBox="0 0 24 24"><path d="M3 6.5a1.5 1.5 0 0 1 1.5-1.5H9l2 2.2h8.5A1.5 1.5 0 0 1 21 8.7v9.1A1.7 1.7 0 0 1 19.3 19.5H4.7A1.7 1.7 0 0 1 3 17.8z"/><path d="M12 10.5v5M9.5 13h5"/></symbol>
+  <symbol id="icon-x" viewBox="0 0 24 24"><path d="M6 6l12 12M18 6L6 18"/></symbol>
+  <symbol id="icon-chevron-left" viewBox="0 0 24 24"><path d="M15 5l-7 7 7 7"/></symbol>
+  <symbol id="icon-chevron-right" viewBox="0 0 24 24"><path d="M9 5l7 7-7 7"/></symbol>
+  <symbol id="icon-play" viewBox="0 0 24 24"><path d="M8 5.5v13l11-6.5z"/></symbol>
+  <symbol id="icon-dots" viewBox="0 0 24 24"><circle cx="5" cy="12" r="1.6"/><circle cx="12" cy="12" r="1.6"/><circle cx="19" cy="12" r="1.6"/></symbol>
+  <symbol id="icon-trash" viewBox="0 0 24 24"><path d="M4 7h16M9 7V5a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2M6 7l1 13a1.5 1.5 0 0 0 1.5 1.4h7A1.5 1.5 0 0 0 17 20l1-13"/></symbol>
+  <symbol id="icon-info" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M12 11v5.5"/><circle cx="12" cy="7.7" r="1"/></symbol>
+  <symbol id="icon-check" viewBox="0 0 24 24"><path d="M5 12.5l4.5 4.5L19 7"/></symbol>
+  <symbol id="icon-pencil" viewBox="0 0 24 24"><path d="M4 20l1-4.2L15.8 5 19 8.2 8.2 19 4 20z"/><path d="M13.5 6.5l4 4"/></symbol>
+  <symbol id="icon-select" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M8 12.5l2.5 2.5L16 9.5"/></symbol>
+  <symbol id="icon-settings" viewBox="0 0 24 24"><circle cx="12" cy="12" r="3.2"/><path d="M19.4 13.5a1.7 1.7 0 0 0 .34 1.87l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.7 1.7 0 0 0-1.87-.34 1.7 1.7 0 0 0-1 1.55V19.6a2 2 0 1 1-4 0v-.09a1.7 1.7 0 0 0-1.1-1.55 1.7 1.7 0 0 0-1.87.34l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.7 1.7 0 0 0 .34-1.87 1.7 1.7 0 0 0-1.55-1H2.4a2 2 0 1 1 0-4h.09a1.7 1.7 0 0 0 1.55-1.1 1.7 1.7 0 0 0-.34-1.87l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.7 1.7 0 0 0 1.87.34H8.5a1.7 1.7 0 0 0 1-1.55V2.4a2 2 0 1 1 4 0v.09a1.7 1.7 0 0 0 1 1.55 1.7 1.7 0 0 0 1.87-.34l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.7 1.7 0 0 0-.34 1.87V8.5a1.7 1.7 0 0 0 1.55 1H21.6a2 2 0 1 1 0 4h-.09a1.7 1.7 0 0 0-1.55 1z"/></symbol>
+  <symbol id="icon-expand" viewBox="0 0 24 24"><path d="M9 4H4v5M15 4h5v5M9 20H4v-5M15 20h5v-5"/></symbol>
+  <symbol id="icon-collapse" viewBox="0 0 24 24"><path d="M4 9h5V4M20 9h-5V4M4 15h5v5M20 15h-5v5"/></symbol>
+  <symbol id="icon-copy" viewBox="0 0 24 24"><rect x="8" y="8" width="12" height="12" rx="2"/><path d="M16 8V6a2 2 0 0 0-2-2H6a2 2 0 0 0-2 2v8a2 2 0 0 0 2 2h2"/></symbol>
+  <symbol id="icon-clock" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M12 7v5.2l3.4 2"/></symbol>
+  <symbol id="icon-calendar" viewBox="0 0 24 24"><rect x="3.5" y="5" width="17" height="15" rx="2"/><path d="M3.5 9.5h17M8 3.5v3M16 3.5v3"/></symbol>
+  <symbol id="icon-swipe" viewBox="0 0 24 24"><path d="M7 9L3.5 12.5 7 16M17 9l3.5 3.5L17 16M3.5 12.5h17"/></symbol>
+  <symbol id="icon-export" viewBox="0 0 24 24"><path d="M12 15.5V4M8.2 7.6L12 3.8l3.8 3.8M4.5 14v4.5a1.6 1.6 0 0 0 1.6 1.6h11.8a1.6 1.6 0 0 0 1.6-1.6V14"/></symbol>
+  <symbol id="icon-import" viewBox="0 0 24 24"><path d="M12 3.8v11.7M8.2 11.7L12 15.5l3.8-3.8M4.5 14v4.5a1.6 1.6 0 0 0 1.6 1.6h11.8a1.6 1.6 0 0 0 1.6-1.6V14"/></symbol>
+  <symbol id="icon-save" viewBox="0 0 24 24"><path d="M5 4h11l3 3v13a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1V5a1 1 0 0 1 1-1z"/><path d="M8 4v6h7V4M8 21v-6h8v6"/></symbol>
+  <symbol id="icon-zoom" viewBox="0 0 24 24"><circle cx="10.2" cy="10.2" r="6.6"/><path d="M15.2 15.2L21 21"/></symbol>
+</svg>
+
+<!-- ── Header ── -->
+<div class="hdr">
+  <div class="hRow">
+    <div class="hNorm" id="hNorm">
+      <button class="backBtn" id="backBtn" aria-label="Back">
+        <svg class="icon"><use href="#icon-chevron-left"/></svg>
+      </button>
+      <div class="logo" id="logoEl">
+        <div class="lIco"><svg class="icon"><use href="#icon-photos"/></svg></div>
+        <h1>Media<span>Mover</span></h1>
+      </div>
+      <div class="hFTitle" id="hFTitle"></div>
+    </div>
+    <div class="hSel" id="hSel">
+      <button class="selCancelBtn" id="selCancelBtn">Cancel</button>
+      <span class="selCountLbl" id="selCountLbl">0 selected</span>
+      <button class="selAllBtn"  id="selAllBtn">Select All</button>
+    </div>
+    <div class="hBtns">
+      <div class="iBtn" id="fsBtn" title="Fullscreen (F)" role="button" aria-label="Fullscreen">
+        <svg class="icon"><use href="#icon-expand"/></svg>
+      </div>
+      <div class="sWrap">
+        <div class="iBtn" id="settingsBtn" tabindex="0" role="button" aria-label="Settings">
+          <svg class="icon"><use href="#icon-settings"/></svg>
+        </div>
+        <div id="sPanel">
+          <div class="sTit">Display</div>
+          <div class="sGRow">
+            <button class="sGBtn" data-gs="72">Small</button>
+            <button class="sGBtn on" data-gs="104">Medium</button>
+            <button class="sGBtn" data-gs="160">Large</button>
+          </div>
+          <div class="sTit">Preferences</div>
+          <label class="sRow">
+            <span class="sLbl"><span class="sIc"><svg class="icon"><use href="#icon-swipe"/></svg></span>Swipe to Navigate</span>
+            <span class="tog"><input type="checkbox" id="togSwipe" checked><span class="togT"></span><span class="togK"></span></span>
+          </label>
+          <label class="sRow">
+            <span class="sLbl"><span class="sIc"><svg class="icon"><use href="#icon-clock"/></svg></span>Newest First</span>
+            <span class="tog"><input type="checkbox" id="togSort" checked><span class="togT"></span><span class="togK"></span></span>
+          </label>
+          <label class="sRow">
+            <span class="sLbl"><span class="sIc"><svg class="icon"><use href="#icon-calendar"/></svg></span>EXIF Date Taken</span>
+            <span class="tog"><input type="checkbox" id="togExif" checked><span class="togT"></span><span class="togK"></span></span>
+          </label>
+          <label class="sRow">
+            <span class="sLbl"><span class="sIc"><svg class="icon"><use href="#icon-copy"/></svg></span>Mark Duplicates</span>
+            <span class="tog"><input type="checkbox" id="togDupes" checked><span class="togT"></span><span class="togK"></span></span>
+          </label>
+          <div class="sTit">Folder Vault</div>
+          <button class="sActBtn" id="sExportVault"><span class="sIc"><svg class="icon"><use href="#icon-export"/></svg></span>Export All Folders</button>
+          <button class="sActBtn" id="sImportVault"><span class="sIc"><svg class="icon"><use href="#icon-import"/></svg></span>Import Folder Vault</button>
+          <div class="sHint">Folders are stored in one vault file. Export to back up or transfer across devices.</div>
+        </div>
+      </div>
+    </div>
+  </div>
+  <div class="topbar">
+    <button class="pickBtn" id="pickBtn">
+      <svg class="icon"><use href="#icon-plus"/></svg> Select Photos &amp; Videos
+    </button>
+  </div>
+</div>
+
+<input type="file" id="fileInput"   accept="image/*,video/*" multiple hidden>
+<input type="file" id="vaultImport" accept=".txt"             hidden>
+
+<div class="statBar" id="statBar">
+  <span class="stIco"><svg class="icon"><use href="#icon-folders"/></svg></span>
+  <span class="stTxt" id="msg">No files selected — tap above to get started.</span>
+</div>
+
+<div class="gWrap" id="gWrap">
+  <div class="grid" id="gallery"></div>
+  <div class="empty" id="emptyEl" style="display:none">
+    <div class="eIco"><svg class="icon"><use href="#icon-photos"/></svg></div>
+    <div class="eTit" id="emptyTit">No media yet</div>
+    <div class="eHint" id="emptyHint">Select photos and videos above to get started.</div>
+  </div>
+</div>
+
+<div class="folderView" id="folderView">
+  <div class="fvTopRow">
+    <button class="fvTopBtn grn" id="fvExportBtn"><svg class="icon"><use href="#icon-export"/></svg> Export Vault</button>
+    <button class="fvTopBtn acc" id="fvImportBtn"><svg class="icon"><use href="#icon-import"/></svg> Import Vault</button>
+  </div>
+  <button class="fvNew" id="fvNewBtn">
+    <svg class="icon"><use href="#icon-folder-plus"/></svg> New Folder
+  </button>
+  <div id="fvCards"></div>
+  <div class="fvEmpty" id="fvEmpty" style="display:none">
+    <div class="eIco"><svg class="icon"><use href="#icon-folders"/></svg></div>
+    <div class="eTit">No folders yet</div>
+    <div class="eHint">Create a folder, or import a vault file from another session.</div>
+  </div>
+</div>
+
+<div class="viewer" id="viewer">
+  <div class="vTop">
+    <button class="vBtn" id="closeBtn" aria-label="Close"><svg class="icon"><use href="#icon-x"/></svg></button>
+    <span class="vCtr" id="vCtr">1 / 1</span>
+    <div class="vBR">
+      <button class="vBtn" id="favBtn" aria-label="Favourite"><svg class="icon"><use href="#icon-favorites"/></svg></button>
+      <button class="vBtn" id="vFsBtn" aria-label="Fullscreen"><svg class="icon"><use href="#icon-expand"/></svg></button>
+      <button class="vBtn vNavBtn" id="prevBtn" aria-label="Previous"><svg class="icon"><use href="#icon-chevron-left"/></svg></button>
+      <button class="vBtn vNavBtn" id="nextBtn" aria-label="Next"><svg class="icon"><use href="#icon-chevron-right"/></svg></button>
+      <button class="vBtn" id="moreBtn" aria-label="More"><svg class="icon"><use href="#icon-dots"/></svg></button>
+    </div>
+  </div>
+  <div class="vStage" id="vStage">
+    <div id="vCon"></div>
+    <div id="zHUD">100%</div>
+    <div id="zTab">
+      <button id="zTabBtn" title="Zoom controls" aria-label="Zoom controls">
+        <svg class="icon"><use href="#icon-zoom"/></svg>
+      </button>
+      <div id="zCtrls">
+        <button class="zbBtn" id="zOut">−</button>
+        <button id="zLvl" title="Tap to fit">100%</button>
+        <button class="zbBtn" id="zIn">+</button>
+      </div>
+    </div>
+    <button id="cinemaExit"><svg class="icon"><use href="#icon-collapse"/></svg> Exit Fullscreen</button>
+  </div>
+  <div class="vInfo">
+    <div class="vIN" id="vName">—</div>
+    <div class="vIS" id="vSz">—</div>
+  </div>
+</div>
+
+<div id="ctxBackdrop"></div>
+<div id="ctx">
+  <div class="ctxBigRow">
+    <button class="ctxBig grn" id="ctxFolder">
+      <span class="cIco"><svg class="icon"><use href="#icon-folders"/></svg></span>
+      <span class="cbLbl">Add to Folder</span>
+    </button>
+    <button class="ctxBig" id="ctxFav">
+      <span class="cIco"><svg class="icon"><use href="#icon-favorites"/></svg></span>
+      <span id="ctxFL" class="cbLbl">Favourite</span>
+    </button>
+  </div>
+  <div class="cDiv"></div>
+  <button class="cBtn" id="ctxSave"><span class="cIco"><svg class="icon"><use href="#icon-save"/></svg></span>Save to Files</button>
+  <button class="cBtn" id="ctxExportFavs"><span class="cIco"><svg class="icon"><use href="#icon-copy"/></svg></span>Export Favourites List</button>
+  <div class="cDiv"></div>
+  <button class="cBtn red" id="ctxDel"><span class="cIco"><svg class="icon"><use href="#icon-trash"/></svg></span>Remove from list</button>
+  <div class="cDiv"></div>
+  <button class="cBtn" id="ctxX"><span class="cIco"><svg class="icon"><use href="#icon-x"/></svg></span>Cancel</button>
+</div>
+
+<div id="fldCtx">
+  <div class="emojiPickerRow" id="emojiPickerRow">
+    <span class="emojiPickerLabel">Icon</span>
+    <div class="emojiGrid" id="emojiGrid"></div>
+  </div>
+  <button class="cBtn" id="fldCtxRename"><span class="cIco"><svg class="icon"><use href="#icon-pencil"/></svg></span>Rename</button>
+  <div class="cDiv"></div>
+  <button class="cBtn red" id="fldCtxDelete"><span class="cIco"><svg class="icon"><use href="#icon-trash"/></svg></span>Delete Folder</button>
+  <div class="cDiv"></div>
+  <button class="cBtn" id="fldCtxCancel"><span class="cIco"><svg class="icon"><use href="#icon-x"/></svg></span>Cancel</button>
+</div>
+
+<div id="fldPicker">
+  <div class="fpBox">
+    <div class="fpTit" id="fpTit">Add to Folder</div>
+    <div class="fpScroll" id="fpList"></div>
+    <div class="fpNew" id="fpNew"><svg class="icon"><use href="#icon-folder-plus"/></svg> Create new folder…</div>
+    <button class="fpCancel" id="fpCancel">Cancel</button>
+  </div>
+</div>
+
+<div class="tabBar" id="tabBar">
+  <button class="tab on" data-tab="all">
+    <span class="tIco"><svg class="icon"><use href="#icon-all"/></svg></span><span class="tLbl">All</span>
+  </button>
+  <button class="tab" data-tab="photo">
+    <span class="tIco"><svg class="icon"><use href="#icon-photos"/></svg></span><span class="tLbl">Photos</span>
+  </button>
+  <button class="tab" data-tab="video">
+    <span class="tIco"><svg class="icon"><use href="#icon-videos"/></svg></span><span class="tLbl">Videos</span>
+  </button>
+  <button class="tab" data-tab="fav">
+    <span class="tIco"><svg class="icon"><use href="#icon-favorites"/></svg></span><span class="tLbl">Favourites</span>
+  </button>
+  <button class="tab" data-tab="folder">
+    <span class="tIco"><svg class="icon"><use href="#icon-folders"/></svg></span><span class="tLbl">Folders</span>
+    <span class="tDot" id="fldDot"></span>
+  </button>
+</div>
+
+<div class="actBar" id="actBar">
+  <button class="actBtn grn" id="actFolder">
+    <svg class="icon"><use href="#icon-folders"/></svg><span class="aLbl">Add to Folder</span>
+  </button>
+  <button class="actBtn" id="actFav">
+    <svg class="icon"><use href="#icon-favorites"/></svg><span class="aLbl">Favourite</span>
+  </button>
+  <button class="actBtn red" id="actDel">
+    <svg class="icon"><use href="#icon-trash"/></svg><span class="aLbl">Remove</span>
+  </button>
+</div>
+
+<div id="toast"></div>
+
+<script>
+
+'use strict';
+
+/* ── Constants ─────────────────────────────────────────── */
+const LS_FAVS     = 'mediamover_favs';
+const LS_VAULT    = 'mediamover_vault';
+const LS_GRIDSIZE = 'mediamover_grid';
+const VAULT_MAGIC = 'MMVAULT1:';
+const VAULT_KEY   = 'MMVaultAES256GCMAppKey2024v1!!!!';
+const HOLD_MS     = 440;
+const HOLD_DRIFT  = 12;
+const Z_MIN = 1, Z_MAX = 8;
+const EXIF_CONCURRENCY = 8;   // cap parallel file-slice reads while sorting
+const IMG_THUMB_CAP    = 6;   // image thumb decodes in flight at once
+const VID_THUMB_CAP    = 2;   // video grabs in flight — iOS hard-limits live
+                              // media decoders; 3+ caused runs of failures
+const THUMB_MIN  = 96;        // device-px floor for generated thumbnails
+const THUMB_MAX  = 512;       // device-px ceiling for generated thumbnails
+const THUMB_TINY = 50000;     // files under ~50KB are decoded directly
+
+const DEFAULT_FOLDER_EMOJI = '📁';
+const FOLDER_EMOJIS = [
+  '📁','📂','🗂️','📋','📌','📎','🗃️','🗄️',
+  '❤️','🧡','💛','💚','💙','💜','🖤','🤍',
+  '⭐','🌟','💫','✨','🔥','💎','🏆','🎯',
+  '🎬','🎵','🎨','📸','🎮','🌍','🏠','🚀',
+  '🌈','🌸','🍀','🦋','🐾','🔮','💡','🔑',
+  '📚','📝','🗓️','📊','💼','🛠️','⚙️','🔒',
+];
+
+/* Both placeholders are drawn on a transparent background so the tile's own
+   --surf3 shows through — that's what lets them read correctly in light and
+   dark mode alike, since a baked-in data: URI can't respond to the theme. */
+const VID_PH = 'data:image/svg+xml;charset=utf-8,' + encodeURIComponent(
+  "<svg xmlns='http://www.w3.org/2000/svg' width='300' height='300'><circle cx='150' cy='150' r='52' fill='none' stroke='rgba(142,142,147,.45)' stroke-width='2'/><polygon points='140,122 194,150 140,178' fill='rgba(142,142,147,.55)'/></svg>"
+);
+const IMG_ERR = 'data:image/svg+xml;charset=utf-8,' + encodeURIComponent(
+  "<svg xmlns='http://www.w3.org/2000/svg' width='300' height='300'><rect x='105' y='115' width='90' height='70' rx='8' fill='none' stroke='rgba(142,142,147,.5)' stroke-width='3'/><circle cx='128' cy='138' r='7' fill='rgba(142,142,147,.5)'/><path d='M113 178 L143 150 L160 165 L177 148 L192 178' fill='none' stroke='rgba(142,142,147,.5)' stroke-width='3' stroke-linejoin='round'/><line x1='98' y1='200' x2='202' y2='100' stroke='rgba(255,59,48,.55)' stroke-width='4' stroke-linecap='round'/></svg>"
+);
+
+/* ── DOM cache ─────────────────────────────────────────── */
+const $ = id => document.getElementById(id);
+
+/* Every icon in the app comes from the one sprite in index.html, so the
+   handful of badges built at runtime pull from it too rather than hardcoding
+   a glyph. Folder icons are the deliberate exception — those stay emoji,
+   because they're content the user picked, not app chrome. */
+const svgIcon = id => `<svg class="icon"><use href="#${id}"/></svg>`;
+const pickBtn      = $('pickBtn'),     fileInput    = $('fileInput');
+const gallery      = $('gallery'),     emptyEl      = $('emptyEl');
+const emptyTit     = $('emptyTit'),    emptyHint    = $('emptyHint');
+const viewer       = $('viewer'),      vCon         = $('vCon'),    vStage = $('vStage');
+const statBar      = $('statBar'),     msg          = $('msg');
+const closeBtn     = $('closeBtn'),    prevBtn      = $('prevBtn'), nextBtn = $('nextBtn'), moreBtn = $('moreBtn');
+const vCtr         = $('vCtr'),        favBtn       = $('favBtn'),  vFsBtn  = $('vFsBtn'),  fsBtn   = $('fsBtn');
+const settingsBtn  = $('settingsBtn'), sPanel       = $('sPanel');
+const togSwipe     = $('togSwipe'),    togSort      = $('togSort'), togExif = $('togExif'), togDupes = $('togDupes');
+const sExportVault = $('sExportVault'), sImportVault = $('sImportVault'), vaultImport = $('vaultImport');
+const ctxBackdrop  = $('ctxBackdrop');
+const ctx          = $('ctx'),         ctxSave      = $('ctxSave'), ctxFav = $('ctxFav'), ctxFL = $('ctxFL');
+const ctxDel       = $('ctxDel'),      ctxX         = $('ctxX'),    ctxExportFavs = $('ctxExportFavs'), ctxFolder = $('ctxFolder');
+const fldCtx       = $('fldCtx'),      fldCtxRename = $('fldCtxRename'), fldCtxDelete = $('fldCtxDelete'), fldCtxCancel = $('fldCtxCancel');
+const emojiGrid    = $('emojiGrid');
+const vName        = $('vName'),       vSz          = $('vSz'),    toast  = $('toast');
+const zHUD         = $('zHUD'),        zLvl         = $('zLvl'),   zIn    = $('zIn'),   zOut  = $('zOut');
+const zTab         = $('zTab'),        zTabBtn      = $('zTabBtn');
+const cinemaExit   = $('cinemaExit');
+const hNorm        = $('hNorm'),       hSel         = $('hSel'),   logoEl = $('logoEl'), hFTitle = $('hFTitle'), backBtn = $('backBtn');
+const selCancelBtn = $('selCancelBtn'), selCountLbl = $('selCountLbl'), selAllBtn = $('selAllBtn');
+const tabBar       = $('tabBar'),      actBar       = $('actBar');
+const actFolder    = $('actFolder'),   actFav       = $('actFav'), actDel  = $('actDel');
+const gWrap        = $('gWrap'),       folderView   = $('folderView');
+const fvCards      = $('fvCards'),     fvEmpty      = $('fvEmpty');
+const fvNewBtn     = $('fvNewBtn'),    fvExportBtn  = $('fvExportBtn'), fvImportBtn = $('fvImportBtn');
+const fldPicker    = $('fldPicker'),   fpList       = $('fpList'), fpTit = $('fpTit'), fpNew = $('fpNew'), fpCancel = $('fpCancel');
+const fldDot       = $('fldDot');
+
+// Static NodeLists queried once instead of per call.
+const tabEls   = document.querySelectorAll('.tab');
+const sGBtnEls = document.querySelectorAll('.sGBtn');
+
+let _stBadge = null;  // lazy-cached after first attach
+
+/* ── Primary state ────────────────────────────────────── */
+let list             = [];
+let curFile          = null;
+let activeTab        = 'all';
+let activeFolderName = null;
+let curURL           = null;
+let thumbURLs        = [];
+let folderThumbURLs  = [];
+let fvThumbSeq       = 0;
+let zS               = null;
+let toastTimer       = null;
+let hudTimer         = null;
+let bSeq             = 0;
+let cinemaMode       = false;
+let favs             = new Set();
+let folders          = new Map();   // name → { emoji, files: Set<favKey> }
+let swipeOn          = true;
+let newestF          = true;
+let prefExif         = true;
+let selectMode       = false;
+let selected         = new Set();
+let fldCtxTarget     = null;
+let fpPickerTarget   = null;
+
+const exifCache = new WeakMap();
+
+/* ── Derived state — recomputed only on invalidation ──── */
+let _filteredCache  = null;
+let _filteredDirty  = true;
+let _allFolderKeys  = null;       // Set of all favKeys present in any folder
+let _dupeMap        = null;
+let _dupeMapDirty   = true;
+let _totalSize      = 0;
+
+/* ── Invalidation ─────────────────────────────────────── */
+function invList() {
+  _filteredDirty = true;
+  _dupeMapDirty  = true;
+  let s = 0;
+  for (let i = 0; i < list.length; i++) s += list[i].size || 0;
+  _totalSize = s;
+}
+function invFolders() {
+  _allFolderKeys = null;
+  if (activeTab === 'folder') _filteredDirty = true;
+}
+function invFavs()    { if (activeTab === 'fav') _filteredDirty = true; }
+function invFilter()  { _filteredDirty = true; }
+
+/* ── Derived getters ──────────────────────────────────── */
+function getFiltered() {
+  if (!_filteredDirty) return _filteredCache;
+  let r;
+  switch (activeTab) {
+    case 'photo': r = list.filter(isImg); break;
+    case 'video': r = list.filter(isVid); break;
+    case 'fav':   r = list.filter(f => favs.has(f)); break;
+    case 'folder': {
+      if (!activeFolderName) { r = []; break; }
+      const entry = folders.get(activeFolderName);
+      r = entry ? list.filter(f => entry.files.has(favKey(f))) : [];
+      break;
+    }
+    default: r = list.slice();
+  }
+  _filteredCache = r;
+  _filteredDirty = false;
+  return r;
+}
+function getAllFolderKeys() {
+  if (_allFolderKeys) return _allFolderKeys;
+  const s = new Set();
+  folders.forEach(({ files }) => files.forEach(k => s.add(k)));
+  _allFolderKeys = s;
+  return s;
+}
+function getDupeMap() {
+  if (!_dupeMapDirty) return _dupeMap;
+  const m = new Map();
+  for (let i = 0; i < list.length; i++) {
+    const k = dupeKey(list[i]);
+    m.set(k, (m.get(k) || 0) + 1);
+  }
+  _dupeMap = m;
+  _dupeMapDirty = false;
+  return m;
+}
+
+/* ── Helpers ──────────────────────────────────────────── */
+const isImg   = f => f.type.startsWith('image');
+const isVid   = f => f.type.startsWith('video');
+const clamp   = (v, lo, hi) => Math.max(lo, Math.min(hi, v));
+const buzz    = ms => { try { navigator.vibrate && navigator.vibrate(ms); } catch {} };
+const escH    = s => s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+
+// File keys are immutable per File object, so compute once and memoise.
+// favKey/dupeKey are called in hot paths (filtering, folder lookups, dupe
+// scan, badge updates) — caching turns repeated string builds into map hits.
+const _favKeyCache  = new WeakMap();
+const _dupeKeyCache = new WeakMap();
+function favKey(f) {
+  let k = _favKeyCache.get(f);
+  if (k === undefined) {
+    k = (f.name || '') + '|' + (f.size || 0) + '|' + (f.lastModified || 0);
+    _favKeyCache.set(f, k);
+  }
+  return k;
+}
+function dupeKey(f) {
+  let k = _dupeKeyCache.get(f);
+  if (k === undefined) {
+    k = (f.name || '') + '|' + (f.size || 0);
+    _dupeKeyCache.set(f, k);
+  }
+  return k;
+}
+
+function revokeURL(u)     { if (u) try { URL.revokeObjectURL(u); } catch {} }
+function clearThumbURLs() {
+  for (let i = 0; i < thumbURLs.length; i++) revokeURL(thumbURLs[i]);
+  thumbURLs.length = 0;
+}
+function clearFolderThumbURLs() {
+  for (let i = 0; i < folderThumbURLs.length; i++) revokeURL(folderThumbURLs[i]);
+  folderThumbURLs.length = 0;
+}
+
+function fmtBytes(n) {
+  if (!Number.isFinite(n) || n < 0) return '—';
+  const u = ['B','KB','MB','GB']; let i = 0, v = n;
+  while (v >= 1024 && i < 3) { v /= 1024; i++; }
+  return (i ? v.toFixed(1) : v) + ' ' + u[i];
+}
+
+function showToast(text, ms = 2400, action = null) {
+  toast.textContent = '';
+  toast.appendChild(document.createTextNode(text));
+  if (action) {
+    const b = document.createElement('button');
+    b.className = 'toastAct';
+    b.textContent = action.label;
+    b.addEventListener('click', e => {
+      e.stopPropagation();
+      clearTimeout(toastTimer);
+      toast.classList.remove('show');
+      action.cb();
+    });
+    toast.appendChild(b);
+    ms = Math.max(ms, 5000);   // give the action time to be tapped
+  }
+  toast.classList.add('show');
+  clearTimeout(toastTimer);
+  toastTimer = setTimeout(() => toast.classList.remove('show'), ms);
+}
+
+/* ── Folder data helpers ──────────────────────────────── */
+function getFolderEmoji(name) { return folders.get(name)?.emoji || DEFAULT_FOLDER_EMOJI; }
+function ensureFolder(name)   { if (!folders.has(name)) folders.set(name, { emoji: DEFAULT_FOLDER_EMOJI, files: new Set() }); }
+
+/* ── Crypto — AES-256-GCM vault ───────────────────────── */
+let _vaultKeyPromise = null;   // importKey once, reuse for every encrypt/decrypt
+function getVaultKey() {
+  if (!_vaultKeyPromise) {
+    _vaultKeyPromise = crypto.subtle.importKey(
+      'raw', new TextEncoder().encode(VAULT_KEY), 'AES-GCM', false, ['encrypt','decrypt']
+    );
+  }
+  return _vaultKeyPromise;
+}
+function uint8ToB64(buf) {
+  // Chunked to avoid call-stack limits on large vaults.
+  let s = '';
+  const CH = 0x8000;
+  for (let i = 0; i < buf.length; i += CH) {
+    s += String.fromCharCode.apply(null, buf.subarray(i, i + CH));
+  }
+  return btoa(s);
+}
+async function encryptVault() {
+  const key = await getVaultKey();
+  const iv  = crypto.getRandomValues(new Uint8Array(12));
+  const obj = { v: 2, folders: {} };
+  folders.forEach(({ emoji, files }, name) => {
+    obj.folders[name] = { emoji: emoji || DEFAULT_FOLDER_EMOJI, files: [...files] };
+  });
+  const ct  = await crypto.subtle.encrypt({ name: 'AES-GCM', iv }, key, new TextEncoder().encode(JSON.stringify(obj)));
+  const buf = new Uint8Array(12 + ct.byteLength);
+  buf.set(iv); buf.set(new Uint8Array(ct), 12);
+  return VAULT_MAGIC + uint8ToB64(buf);
+}
+async function decryptVault(txt) {
+  const t = txt.trim();
+  if (!t.startsWith(VAULT_MAGIC)) throw new Error('Not a MediaMover vault file');
+  const key = await getVaultKey();
+  const raw = atob(t.slice(VAULT_MAGIC.length));
+  const buf = new Uint8Array(raw.length);
+  for (let i = 0; i < raw.length; i++) buf[i] = raw.charCodeAt(i);
+  const plain = await crypto.subtle.decrypt({ name: 'AES-GCM', iv: buf.slice(0, 12) }, key, buf.slice(12));
+  const data  = JSON.parse(new TextDecoder().decode(plain));
+  if (!data.folders) throw new Error('Invalid vault data');
+  return data.folders;
+}
+
+/* ── Vault localStorage ───────────────────────────────── */
+function saveVault() {
+  try {
+    const obj = {};
+    folders.forEach(({ emoji, files }, n) => {
+      obj[n] = { emoji: emoji || DEFAULT_FOLDER_EMOJI, files: [...files] };
+    });
+    localStorage.setItem(LS_VAULT, JSON.stringify(obj));
+    invFolders();
+  } catch {}
+}
+function loadVault() {
+  try {
+    const obj = JSON.parse(localStorage.getItem(LS_VAULT) || '{}');
+    folders.clear();
+    Object.entries(obj).forEach(([n, val]) => {
+      if (Array.isArray(val)) {
+        folders.set(n, { emoji: DEFAULT_FOLDER_EMOJI, files: new Set(val) });
+      } else {
+        folders.set(n, { emoji: val.emoji || DEFAULT_FOLDER_EMOJI, files: new Set(val.files || []) });
+      }
+    });
+    invFolders();
+  } catch {}
+}
+function mergeVaultData(data) {
+  let added = 0;
+  Object.entries(data).forEach(([name, val]) => {
+    const incFiles = Array.isArray(val) ? val : (val.files || []);
+    const incEmoji = Array.isArray(val) ? DEFAULT_FOLDER_EMOJI : (val.emoji || DEFAULT_FOLDER_EMOJI);
+    if (!folders.has(name)) folders.set(name, { emoji: incEmoji, files: new Set() });
+    const entry = folders.get(name);
+    for (let i = 0; i < incFiles.length; i++) {
+      if (!entry.files.has(incFiles[i])) { entry.files.add(incFiles[i]); added++; }
+    }
+  });
+  invFolders();
+  return added;
+}
+
+/* ── Vault export/import handlers ─────────────────────── */
+function downloadBlob(blob, filename) {
+  const u = URL.createObjectURL(blob);
+  const a = Object.assign(document.createElement('a'), { href: u, download: filename });
+  document.body.appendChild(a); a.click(); a.remove();
+  setTimeout(() => revokeURL(u), 2000);
+}
+async function doExportVault() {
+  toggleSP(false);
+  if (!folders.size) { showToast('No folders to export yet'); return; }
+  try {
+    const enc = await encryptVault();
+    downloadBlob(new Blob([enc], { type: 'text/plain' }),
+      `mediamover-vault-${new Date().toISOString().slice(0, 10)}.txt`);
+    showToast(`Exported ${folders.size} folder${folders.size !== 1 ? 's' : ''}`);
+  } catch (e) { showToast('Export failed: ' + e.message); }
+}
+async function doImportVault(file) {
+  if (!file) return;
+  try {
+    const data  = await decryptVault(await file.text());
+    const added = mergeVaultData(data);
+    saveVault(); renderFolderList(); updateFldDot();
+    if (list.length) { buildGallery(getFiltered()); setStatus(); }
+    const n = Object.keys(data).length;
+    showToast(`Imported ${n} folder${n !== 1 ? 's' : ''} · ${added} new entries`);
+  } catch (e) { showToast('Import failed: ' + (e.message || 'unreadable file')); }
+}
+
+sExportVault.onclick = doExportVault;
+fvExportBtn.onclick  = doExportVault;
+sImportVault.onclick = () => { toggleSP(false); vaultImport.click(); };
+fvImportBtn.onclick  = () => vaultImport.click();
+vaultImport.addEventListener('change', () => {
+  const f = vaultImport.files[0];
+  vaultImport.value = '';
+  doImportVault(f);
+});
+
+/* ── Emoji picker ─────────────────────────────────────── */
+// Buttons are inert; one delegated listener on the grid handles all 48
+// (previously each rebuild attached 48 individual listeners).
+function buildEmojiGrid(currentName) {
+  emojiGrid.textContent = '';
+  const current = getFolderEmoji(currentName);
+  const frag = document.createDocumentFragment();
+  for (let i = 0; i < FOLDER_EMOJIS.length; i++) {
+    const emoji = FOLDER_EMOJIS[i];
+    const btn = document.createElement('button');
+    btn.className = 'emojiBtn' + (emoji === current ? ' active' : '');
+    btn.textContent = emoji;
+    btn.title = emoji;
+    frag.appendChild(btn);
+  }
+  emojiGrid.appendChild(frag);
+}
+emojiGrid.addEventListener('click', e => {
+  const btn = e.target.closest('.emojiBtn');
+  if (!btn || !fldCtxTarget) return;
+  e.stopPropagation();
+  const entry = folders.get(fldCtxTarget);
+  if (!entry) return;
+  const emoji = btn.textContent;
+  entry.emoji = emoji;
+  saveVault(); renderFolderList(); updateFldDot();
+  const buttons = emojiGrid.children;
+  for (let j = 0; j < buttons.length; j++) buttons[j].classList.toggle('active', buttons[j] === btn);
+  if (activeFolderName === fldCtxTarget) updateHeader();
+  showToast(`Icon updated to ${emoji}`);
+});
+
+/* ── Folder list view ─────────────────────────────────── */
+// Folder cards render as a 2-column grid. Each card shows a small "arc" of
+// up to 3 overlapping photo/video thumbnails (fanned out) with the folder
+// name centered below. Thumbnails are generated at a small size and reuse
+// the same cached-blob pipeline as the main gallery (see Thumbnails
+// section) — full-resolution images are NEVER decoded just to show a tiny
+// preview, and the cache is shared, so if the gallery already generated a
+// thumb for a file, the folder view reuses it instantly.
+function calcFolderThumbPx() {
+  const dpr = Math.min(window.devicePixelRatio || 1, 3);
+  return clamp(Math.round(76 * dpr), THUMB_MIN, THUMB_MAX);
+}
+const FOLDER_THUMB_CAP = 4;   // concurrent thumb decodes while the folder list renders
+function runFolderThumbQueue(jobs, seq) {
+  if (!jobs.length) return;
+  const px = calcFolderThumbPx();
+  let i = 0;
+  const worker = async () => {
+    while (i < jobs.length) {
+      const job = jobs[i++];
+      if (seq !== fvThumbSeq) return;   // a newer render superseded this one
+      const { img, file } = job;
+      let blob = null;
+      try { blob = isVid(file) ? await vidThumb(file, px) : await makeImgThumb(file, px); }
+      catch {}
+      if (seq !== fvThumbSeq || !img.isConnected) continue;
+      if (blob) {
+        const u = URL.createObjectURL(blob);
+        folderThumbURLs.push(u);
+        img.src = u;
+      } else {
+        img.src = isVid(file) ? VID_PH : IMG_ERR;
+      }
+      img.classList.add('loaded');
+    }
+  };
+  const pool = [];
+  for (let w = 0; w < Math.min(FOLDER_THUMB_CAP, jobs.length); w++) pool.push(worker());
+}
+
+function renderFolderList() {
+  fvCards.textContent = '';
+  clearFolderThumbURLs();
+  const seq = ++fvThumbSeq;
+  let visibleCount = 0;
+
+  const fileKeys = new Set();
+  const keyToFile = new Map();
+  for (let i = 0; i < list.length; i++) {
+    const f = list[i], k = favKey(f);
+    fileKeys.add(k);
+    if (!keyToFile.has(k)) keyToFile.set(k, f);
+  }
+
+  const frag = document.createDocumentFragment();
+  const thumbJobs = [];
+
+  folders.forEach(({ emoji, files }, name) => {
+    let matched = 0;
+    const previewFiles = [];
+    files.forEach(k => {
+      if (!fileKeys.has(k)) return;
+      matched++;
+      if (previewFiles.length < 3) {
+        const f = keyToFile.get(k);
+        if (f) previewFiles.push(f);
+      }
+    });
+    if (matched === 0) return;
+    visibleCount++;
+
+    const card = document.createElement('div');
+    card.className = 'fCard';
+
+    const arc = document.createElement('div');
+    arc.className = 'fcArc n' + previewFiles.length;
+    if (!previewFiles.length) {
+      const ico = document.createElement('div');
+      ico.className = 'fcArcIco';
+      ico.textContent = emoji || DEFAULT_FOLDER_EMOJI;
+      arc.appendChild(ico);
+    } else {
+      for (let i = 0; i < previewFiles.length; i++) {
+        const img = document.createElement('img');
+        img.className = 'fcArcImg';
+        img.alt = '';
+        arc.appendChild(img);
+        thumbJobs.push({ img, file: previewFiles[i] });
+      }
+    }
+    card.appendChild(arc);
+
+    const nameEl = document.createElement('div');
+    nameEl.className = 'fcName';
+    nameEl.textContent = name;
+    card.appendChild(nameEl);
+
+    const metaEl = document.createElement('div');
+    metaEl.className = 'fcMeta';
+    metaEl.textContent = `${matched} matched · ${files.size} saved`;
+    card.appendChild(metaEl);
+
+    const more = document.createElement('button');
+    more.className = 'fcMoreBtn';
+    more.title = 'Options';
+    more.textContent = '⋯';
+    card.appendChild(more);
+
+    card.addEventListener('click', e => {
+      if (e.target.closest('.fcMoreBtn')) {
+        e.stopPropagation();
+        const r = more.getBoundingClientRect();
+        showFldCtxAt(name, r.left + r.width / 2, r.top);
+        return;
+      }
+      drillIntoFolder(name);
+    });
+    attachHold(card, (x, y) => showFldCtxAt(name, x, y));
+    frag.appendChild(card);
+  });
+
+  fvCards.appendChild(frag);
+  runFolderThumbQueue(thumbJobs, seq);
+
+  const fveTit  = fvEmpty.querySelector('.eTit');
+  const fveHint = fvEmpty.querySelector('.eHint');
+  if (visibleCount === 0) {
+    fvEmpty.style.display = '';
+    if (!folders.size) {
+      fveTit.textContent  = 'No folders yet';
+      fveHint.textContent = 'Create a folder, or import an encrypted vault file from another session.';
+    } else if (!list.length) {
+      fveTit.textContent  = 'No media loaded';
+      fveHint.textContent = 'Load photos & videos above — folders that contain them will appear here.';
+    } else {
+      fveTit.textContent  = 'No matches';
+      fveHint.textContent = 'None of your loaded files belong to any folder yet.';
+    }
+  } else {
+    fvEmpty.style.display = 'none';
+  }
+}
+
+function drillIntoFolder(name) {
+  activeFolderName = name;
+  invFilter();
+  folderView.style.display = 'none';
+  gWrap.style.display = '';
+  buildGallery(getFiltered());
+  updateHeader();
+  setStatus();
+}
+
+function updateFldDot() {
+  let has = false;
+  if (list.length) {
+    const keys = getAllFolderKeys();
+    for (let i = 0; i < list.length; i++) {
+      if (keys.has(favKey(list[i]))) { has = true; break; }
+    }
+  }
+  fldDot.classList.toggle('on', has);
+}
+
+/* ── Folder ctx menu ──────────────────────────────────── */
+function showFldCtxAt(name, x, y) {
+  fldCtxTarget = name;
+  hideCtx();
+  ctxBackdrop.classList.add('show');
+  buildEmojiGrid(name);
+  fldCtx.style.display = 'block';
+  fldCtx.style.transform = 'translate(-9999px,-9999px)';
+  const w = fldCtx.offsetWidth, h = fldCtx.offsetHeight, pad = 10;
+  fldCtx.style.transform = `translate(${clamp(x - w / 2, pad, innerWidth - w - pad)}px,${clamp(y - h - 8, pad, innerHeight - h - pad)}px)`;
+  fldCtx.classList.add('sIn');
+}
+function hideFldCtx() {
+  fldCtx.style.display = 'none';
+  fldCtx.style.transform = 'translate(-9999px,-9999px)';
+  fldCtxTarget = null;
+  if (ctx.style.display !== 'block') ctxBackdrop.classList.remove('show');
+}
+
+fldCtxRename.onclick = () => {
+  const name = fldCtxTarget; hideFldCtx();
+  const newName = (prompt('Rename folder:', name) || '').trim();
+  if (!newName || newName === name) return;
+  if (newName.length > 60)        { showToast('Name too long'); return; }
+  if (folders.has(newName))       { showToast('A folder with that name already exists'); return; }
+  const entry = folders.get(name);
+  folders.delete(name); folders.set(newName, entry);
+  if (activeFolderName === name) { activeFolderName = newName; updateHeader(); }
+  saveVault(); renderFolderList();
+  showToast(`Renamed to "${newName}"`);
+};
+fldCtxDelete.onclick = () => {
+  const name = fldCtxTarget; hideFldCtx();
+  if (!confirm(`Delete folder "${name}"?\n\nFiles are not affected.`)) return;
+  folders.delete(name);
+  if (activeFolderName === name) { activeFolderName = null; showFolderList(); }
+  saveVault(); renderFolderList(); updateFldDot();
+  if (list.length) { buildGallery(getFiltered()); setStatus(); }
+  showToast(`Folder "${name}" deleted`);
+};
+fldCtxCancel.onclick = hideFldCtx;
+document.addEventListener('click', e => {
+  if (fldCtx.style.display === 'block' && !fldCtx.contains(e.target)) hideFldCtx();
+});
+
+fvNewBtn.onclick = () => {
+  const name = promptFolderName();
+  if (!name) return;
+  ensureFolder(name);
+  saveVault(); renderFolderList(); updateFldDot();
+  showToast(`Folder "${name}" created`);
+};
+
+function promptFolderName(def = '') {
+  const n = (prompt('Folder name:', def) || '').trim();
+  if (!n) return null;
+  if (n.length > 60) { showToast('Name too long (max 60 chars)'); return null; }
+  return n;
+}
+
+/* ── Folder picker sheet ──────────────────────────────── */
+function openFolderPicker(targetFile) {
+  fpPickerTarget = targetFile;
+  fpTit.textContent = targetFile ? 'Add to Folder' : 'Add Selected to Folder';
+  fpList.textContent = '';
+
+  if (!folders.size) {
+    const h = document.createElement('div');
+    h.style.cssText = 'font-size:13px;color:var(--mut);padding:8px 10px 4px;';
+    h.textContent = 'No folders yet — create one below.';
+    fpList.appendChild(h);
+  } else {
+    const tFiles = targetFile ? [targetFile] : [...selected];
+    const frag = document.createDocumentFragment();
+    folders.forEach(({ emoji, files }, name) => {
+      const allIn = tFiles.length && tFiles.every(f => files.has(favKey(f)));
+      const row = document.createElement('div');
+      row.className = 'fpItem';
+      row.innerHTML =
+        `<span>${emoji || DEFAULT_FOLDER_EMOJI} <span class="fpN">${escH(name)}</span></span>` +
+        `<span class="fpC">${allIn ? '✓ added' : files.size + ' files'}</span>`;
+      row.addEventListener('click', () => {
+        const tf = targetFile ? [targetFile] : [...selected];
+        if (allIn) tf.forEach(f => files.delete(favKey(f)));
+        else       tf.forEach(f => files.add(favKey(f)));
+        saveVault(); closeFolderPicker(); renderFolderList(); updateFldDot();
+        if (activeTab === 'folder' && activeFolderName === name) {
+          invFilter(); buildGallery(getFiltered()); setStatus();
+        } else {
+          updateTileFolderBadges(tf);
+        }
+        showToast(allIn ? `Removed from "${name}"` : `Added to "${name}"`);
+      });
+      frag.appendChild(row);
+    });
+    fpList.appendChild(frag);
+  }
+  fldPicker.classList.add('open');
+}
+
+function closeFolderPicker() {
+  fldPicker.classList.remove('open');
+  fpPickerTarget = null;
+}
+
+fpNew.addEventListener('click', () => {
+  const name = promptFolderName();
+  if (!name) return;
+  ensureFolder(name);
+  const tFiles = fpPickerTarget ? [fpPickerTarget] : [...selected];
+  const entry = folders.get(name);
+  tFiles.forEach(f => entry.files.add(favKey(f)));
+  saveVault(); closeFolderPicker(); renderFolderList(); updateFldDot();
+  updateTileFolderBadges(tFiles);
+  showToast(`${tFiles.length > 0 ? 'Added to' : 'Created'} "${name}"`);
+});
+fpCancel.addEventListener('click', closeFolderPicker);
+fldPicker.addEventListener('click', e => { if (e.target === fldPicker) closeFolderPicker(); });
+
+// Batch badge refresh: one pass over the gallery DOM instead of an
+// indexOf() scan per file (which was O(n·m) for multi-select adds).
+function updateTileFolderBadges(filesArr) {
+  if (!filesArr.length) return;
+  const wanted = new Set(filesArr);
+  const folderKeys = getAllFolderKeys();
+  const kids = gallery.children;
+  for (let i = 0; i < kids.length; i++) {
+    const t = kids[i], f = t._file;
+    if (!f || !wanted.has(f)) continue;
+    const inAny = folderKeys.has(favKey(f));
+    const existing = t.querySelector('.fldSt');
+    if (inAny && !existing) {
+      const b = document.createElement('div');
+      b.className = 'fldSt'; b.innerHTML = svgIcon('icon-folders');
+      t.appendChild(b);
+    } else if (!inAny && existing) existing.remove();
+  }
+}
+
+/* ── Tab switching ────────────────────────────────────── */
+function switchTab(tab) {
+  if (selectMode) exitSelectMode();
+  activeTab = tab;
+  invFilter();
+  tabEls.forEach(t => t.classList.toggle('on', t.dataset.tab === tab));
+  if (tab === 'folder' && activeFolderName === null) {
+    showFolderList();
+  } else {
+    if (tab !== 'folder') activeFolderName = null;
+    showGallery();
+  }
+  updateHeader();
+  setStatus();
+  hideCtx(); hideFldCtx();
+  window.scrollTo(0, 0);   // each tab starts at the top — no leftover scroll
+}
+
+function showGallery() {
+  gWrap.style.display = '';
+  folderView.style.display = 'none';
+  buildGallery(getFiltered());
+}
+
+function showFolderList() {
+  activeFolderName = null;
+  invFilter();
+  gWrap.style.display = 'none';
+  folderView.style.display = 'block';
+  renderFolderList();
+  updateHeader();
+}
+
+function updateHeader() {
+  const drilled = activeTab === 'folder' && activeFolderName;
+  backBtn.classList.toggle('on', !!drilled);
+  logoEl.classList.toggle('off', !!drilled);
+  hFTitle.classList.toggle('on',  !!drilled);
+  hFTitle.textContent = drilled ? `${getFolderEmoji(activeFolderName)} ${activeFolderName}` : '';
+}
+
+backBtn.onclick = () => {
+  if (selectMode) exitSelectMode();
+  showFolderList();
+};
+
+tabEls.forEach(tab => {
+  tab.addEventListener('click', () => switchTab(tab.dataset.tab));
+});
+
+/* ── Status bar ───────────────────────────────────────── */
+function setStatus() {
+  if (activeTab === 'folder' && activeFolderName === null) {
+    statBar.classList.remove('has');
+    msg.textContent = `${folders.size} folder${folders.size !== 1 ? 's' : ''} — tap to browse, hold for options.`;
+    if (_stBadge) { _stBadge.remove(); _stBadge = null; }
+    return;
+  }
+  const n = list.length;
+  if (!n) {
+    statBar.classList.remove('has');
+    msg.textContent = 'No files selected — tap above to get started.';
+    if (_stBadge) { _stBadge.remove(); _stBadge = null; }
+    return;
+  }
+  statBar.classList.add('has');
+  const fl = getFiltered();
+  msg.textContent = selectMode
+    ? `${selected.size} of ${fl.length} selected`
+    : fl.length < n
+      ? `${fl.length} of ${n} shown · Hold any tile for options`
+      : `${n} item${n !== 1 ? 's' : ''} · Tap to view, hold for options`;
+  if (!_stBadge) { _stBadge = document.createElement('span'); _stBadge.className = 'stBadge'; statBar.appendChild(_stBadge); }
+  _stBadge.textContent = fmtBytes(_totalSize);
+}
+
+/* ── Multi-select ─────────────────────────────────────── */
+function enterSelectMode(firstFile, firstTile) {
+  selectMode = true;
+  selected.clear();
+  buzz(12);   // subtle haptic confirms the hold registered (Android)
+  if (firstFile) {
+    selected.add(firstFile);
+    if (firstTile) firstTile.classList.add('selected');
+  }
+  gallery.classList.add('selMode');
+  hNorm.classList.add('off'); hSel.classList.add('on');
+  tabBar.classList.add('hidden'); actBar.classList.add('on');
+  updateSelCount(); setStatus();
+}
+
+function exitSelectMode() {
+  selectMode = false; selected.clear();
+  gallery.classList.remove('selMode');
+  const sel = gallery.querySelectorAll('.tile.selected');
+  for (let i = 0; i < sel.length; i++) sel[i].classList.remove('selected');
+  hNorm.classList.remove('off'); hSel.classList.remove('on');
+  tabBar.classList.remove('hidden'); actBar.classList.remove('on');
+  setStatus();
+}
+
+function toggleSelect(file, tile) {
+  if (selected.has(file)) { selected.delete(file); tile.classList.remove('selected'); }
+  else                    { selected.add(file);    tile.classList.add('selected');    }
+  updateSelCount(); setStatus();
+}
+
+function updateSelCount() {
+  const n = selected.size;
+  selCountLbl.textContent = `${n} selected`;
+  const fl = getFiltered();
+  const allSel = n > 0 && fl.every(f => selected.has(f));
+  selAllBtn.textContent = allSel ? 'Deselect All' : 'Select All';
+  actFolder.disabled = n === 0;
+  actFav.disabled    = n === 0;
+  actDel.disabled    = n === 0;
+}
+
+selCancelBtn.onclick = exitSelectMode;
+
+selAllBtn.onclick = () => {
+  const fl = getFiltered();
+  const allSel = fl.length > 0 && fl.every(f => selected.has(f));
+  if (allSel) {
+    fl.forEach(f => selected.delete(f));
+    const sel = gallery.querySelectorAll('.tile.selected');
+    for (let i = 0; i < sel.length; i++) sel[i].classList.remove('selected');
+  } else {
+    fl.forEach(f => selected.add(f));
+    const kids = gallery.children;
+    for (let i = 0; i < kids.length; i++) {
+      const t = kids[i];
+      if (t._file && selected.has(t._file)) t.classList.add('selected');
+    }
+  }
+  updateSelCount(); setStatus();
+};
+
+actFolder.addEventListener('click', () => openFolderPicker(null));
+
+actFav.addEventListener('click', () => {
+  const files = [...selected];
+  const allFav = files.every(f => favs.has(f));
+  files.forEach(f => { allFav ? favs.delete(f) : favs.add(f); });
+  saveFavs(); invFavs();
+  const kids = gallery.children;
+  for (let i = 0; i < kids.length; i++) {
+    const t = kids[i];
+    if (!t._file || !selected.has(t._file)) continue;
+    let star = t.querySelector('.favSt');
+    if (!allFav && !star) {
+      star = document.createElement('div');
+      star.className = 'favSt'; star.innerHTML = svgIcon('icon-favorites');
+      t.appendChild(star);
+    } else if (allFav && star) star.remove();
+  }
+  showToast(allFav ? `Removed ${files.length} from favourites` : `${files.length} added to favourites`);
+  if (activeTab === 'fav') { buildGallery(getFiltered()); setStatus(); }
+  exitSelectMode();
+});
+
+actDel.addEventListener('click', () => {
+  const toRemove = [...selected];
+  const snap = captureRemoval(toRemove);   // BEFORE mutation — indices valid
+  // Single filter pass instead of repeated indexOf+splice (O(n) vs O(n·m)).
+  const removeSet = new Set(toRemove);
+  list = list.filter(f => !removeSet.has(f));
+  for (let i = 0; i < toRemove.length; i++) {
+    const f = toRemove[i];
+    favs.delete(f);
+    const k = favKey(f);
+    folders.forEach(({ files }) => files.delete(k));
+  }
+  invList(); invFolders(); invFilter();
+  saveFavs(); saveVault();
+  exitSelectMode();
+  const undo = { label: 'Undo', cb: () => restoreRemoval(snap) };
+  if (!list.length) {
+    gallery.textContent = ''; clearThumbURLs();
+    emptyEl.style.display = '';
+    renderFolderList(); updateFldDot(); setStatus();
+    showToast(`Removed ${toRemove.length} item${toRemove.length !== 1 ? 's' : ''}`, 2400, undo);
+    return;
+  }
+  buildGallery(getFiltered()); renderFolderList(); updateFldDot(); setStatus();
+  showToast(`Removed ${toRemove.length} item${toRemove.length !== 1 ? 's' : ''}`, 2400, undo);
+});
+
+/* ── Undoable removal ─────────────────────────────────── */
+// Snapshot everything a removal touches (list position, favourite state,
+// folder memberships) BEFORE mutating, so a toast Undo can restore it all.
+function captureRemoval(files) {
+  return files.map(f => {
+    const k = favKey(f);
+    const inFolders = [];
+    folders.forEach((entry, name) => { if (entry.files.has(k)) inFolders.push(name); });
+    return { f, i: list.indexOf(f), fav: favs.has(f), inFolders };
+  });
+}
+function restoreRemoval(snap) {
+  snap.sort((a, b) => a.i - b.i);
+  for (let j = 0; j < snap.length; j++) {
+    const { f, i, fav, inFolders } = snap[j];
+    list.splice(Math.min(Math.max(i, 0), list.length), 0, f);
+    if (fav) favs.add(f);
+    const k = favKey(f);
+    for (let n = 0; n < inFolders.length; n++) folders.get(inFolders[n])?.files.add(k);
+  }
+  invList(); invFolders(); invFilter();
+  saveFavs(); saveVault();
+  if (activeTab === 'folder' && activeFolderName === null) renderFolderList();
+  else buildGallery(getFiltered());
+  renderFolderList(); updateFldDot(); setStatus();
+  showToast('Restored');
+}
+
+/* ── Favourites ───────────────────────────────────────── */
+function saveFavs() {
+  try { localStorage.setItem(LS_FAVS, JSON.stringify([...favs].map(favKey))); } catch {}
+}
+function restoreFavs() {
+  favs.clear();
+  try {
+    const saved = new Set(JSON.parse(localStorage.getItem(LS_FAVS) || '[]'));
+    if (!saved.size) return 0;
+    let n = 0;
+    for (let i = 0; i < list.length; i++) {
+      if (saved.has(favKey(list[i]))) { favs.add(list[i]); n++; }
+    }
+    return n;
+  } catch { return 0; }
+}
+function toggleFav(file) {
+  if (!file) return;
+  const was = favs.has(file);
+  was ? favs.delete(file) : favs.add(file);
+  saveFavs(); invFavs(); refreshFavBtn(file);
+  if (activeTab === 'fav') { buildGallery(getFiltered()); setStatus(); return; }
+  const fl = getFiltered();
+  const idx = fl.indexOf(file);
+  const tile = idx >= 0 ? gallery.children[idx] : null;
+  if (tile) {
+    let star = tile.querySelector('.favSt');
+    if (!was && !star) {
+      star = document.createElement('div');
+      star.className = 'favSt'; star.innerHTML = svgIcon('icon-favorites');
+      tile.appendChild(star);
+    } else if (was && star) star.remove();
+  }
+  showToast(was ? 'Removed from favourites' : 'Added to favourites');
+}
+
+function refreshFavBtn(file) {
+  const on = !!(file && favs.has(file));
+  // The icons themselves are the sprite <svg> already in the markup — the
+  // filled/unfilled state is carried by the class, so nothing here replaces
+  // the button's contents.
+  favBtn.classList.toggle('favOn', on);
+  ctxFL.textContent = on ? 'Unfavourite' : 'Favourite';
+  ctxFav.classList.toggle('ctxFavOn', on);
+}
+favBtn.addEventListener('click', () => toggleFav(curFile));
+
+/* ── File picking & sorting ───────────────────────────── */
+pickBtn.addEventListener('click', () => fileInput.click());
+
+fileInput.addEventListener('change', async () => {
+  const files = [...fileInput.files];
+  fileInput.value = '';
+  if (!files.length) return;
+
+  clearThumbURLs();
+  revokeURL(curURL); curURL = null;
+  closeViewerImmediate();
+  if (selectMode) exitSelectMode();
+
+  list = files; curFile = null;
+  invList(); invFolders(); invFilter();
+  msg.textContent = 'Sorting…';
+
+  await sortFiles();
+  const restoredFavs = restoreFavs();
+  loadVault(); renderFolderList(); updateFldDot();
+
+  if (activeTab === 'folder' && activeFolderName === null) showFolderList();
+  else showGallery();
+  setStatus();
+  if (restoredFavs) showToast(`${restoredFavs} favourite${restoredFavs !== 1 ? 's' : ''} restored`);
+});
+
+async function sortFiles() {
+  const keys = new Map();
+  if (prefExif) {
+    // Bounded worker pool: previously Promise.all kicked off a file-slice
+    // read for every image at once, which on a 1000-photo import meant
+    // 1000 simultaneous 256KB reads. Eight at a time is just as fast and
+    // far kinder to memory and the I/O scheduler.
+    let i = 0;
+    const worker = async () => {
+      while (i < list.length) {
+        const f = list[i++];
+        const dt = isImg(f) ? await getDateTaken(f) : null;
+        keys.set(f, dt ? dt.getTime() : (f.lastModified || 0));
+      }
+    };
+    const pool = [];
+    for (let w = 0; w < Math.min(EXIF_CONCURRENCY, list.length); w++) pool.push(worker());
+    await Promise.all(pool);
+  } else {
+    for (let i = 0; i < list.length; i++) keys.set(list[i], list[i].lastModified || 0);
+  }
+  list.sort((a, b) => {
+    const d = (keys.get(b) ?? 0) - (keys.get(a) ?? 0);
+    return newestF ? d : -d;
+  });
+  invFilter();
+}
+
+/* ── EXIF ─────────────────────────────────────────────── */
+async function getDateTaken(file) {
+  if (exifCache.has(file)) return exifCache.get(file);
+  const isJPEG = file.type === 'image/jpeg' || /\.jpe?g$/i.test(file.name || '');
+  if (!isJPEG) { exifCache.set(file, null); return null; }
+  try {
+    const buf = await file.slice(0, 262144).arrayBuffer();
+    const dv  = new DataView(buf);
+    if (dv.getUint16(0, false) !== 0xFFD8) { exifCache.set(file, null); return null; }
+    let off = 2;
+    while (off + 4 < dv.byteLength) {
+      if (dv.getUint8(off) !== 0xFF) break;
+      const mk = dv.getUint8(off + 1), sz = dv.getUint16(off + 2, false);
+      if (sz < 2) break;
+      if (mk === 0xE1) {
+        const st = off + 4;
+        if (dv.getUint32(st, false) !== 0x45786966 || dv.getUint16(st + 4, false) !== 0) { off += 2 + sz; continue; }
+        const tiff = st + 6, le = dv.getUint16(tiff, false) === 0x4949;
+        const u16 = p => dv.getUint16(p, le), u32 = p => dv.getUint32(p, le);
+        if (u16(tiff + 2) !== 0x002A) break;
+        const ifd0 = tiff + u32(tiff + 4), iN = u16(ifd0);
+        let dT = null, exifPtr = null;
+        for (let i = 0; i < iN; i++) {
+          const e = ifd0 + 2 + i * 12, tag = u16(e), cnt = u32(e + 4), vo = u32(e + 8);
+          if (tag === 0x0132 && u16(e + 2) === 2 && cnt >= 10) dT = rdStr(dv, cnt <= 4 ? e + 8 : tiff + vo, cnt);
+          if (tag === 0x8769) exifPtr = vo;
+        }
+        let dto = null;
+        if (exifPtr) {
+          const eI = tiff + exifPtr, eN = u16(eI);
+          for (let i = 0; i < eN; i++) {
+            const e = eI + 2 + i * 12, tag = u16(e), cnt = u32(e + 4), vo = u32(e + 8);
+            if (tag === 0x9003 && u16(e + 2) === 2 && cnt >= 10) { dto = rdStr(dv, cnt <= 4 ? e + 8 : tiff + vo, cnt); break; }
+          }
+        }
+        const parsed = parseExifDate(dto || dT);
+        exifCache.set(file, parsed);
+        return parsed;
+      }
+      if (mk === 0xDA || mk === 0xD9) break;
+      off += 2 + sz;
+    }
+  } catch {}
+  exifCache.set(file, null);
+  return null;
+}
+function rdStr(dv, start, len) {
+  let r = '';
+  const end = Math.min(dv.byteLength, start + len);
+  for (let i = start; i < end; i++) {
+    const c = dv.getUint8(i);
+    if (!c) break;
+    r += String.fromCharCode(c);
+  }
+  return r.trim();
+}
+function parseExifDate(s) {
+  if (!s) return null;
+  const m = /^(\d{4}):(\d{2}):(\d{2})[ T](\d{2}):(\d{2}):(\d{2})/.exec(s);
+  if (!m) return null;
+  const d = new Date(+m[1], +m[2] - 1, +m[3], +m[4], +m[5], +m[6]);
+  return isNaN(d) ? null : d;
+}
+
+/* ── Thumbnails ───────────────────────────────────────── */
+// Thumbs are generated at the size they're actually RENDERED, never at the
+// source resolution. Previously image tiles got a raw object URL, so a 48MP
+// photo was fully decoded into a ~100px tile and the browser kept the whole
+// decoded bitmap alive per visible <img>. Now:
+//   1. calcThumbPx() measures the real on-screen tile width × devicePixelRatio
+//   2. createImageBitmap downscales DURING decode where supported, so the
+//      full-resolution bitmap is never materialised at all
+//   3. the result is re-encoded to a small webp/jpeg blob (a few KB)
+//   4. blobs are cached per file, so tab switches / rebuilds cost nothing
+// The fullscreen viewer still loads the original at full resolution.
+const _thumbCache = new WeakMap();   // file → { px, blob }
+
+function calcThumbPx() {
+  // Real rendered tile width (tiles are square) × DPR, clamped to sane bounds.
+  let cssW = gallery.firstElementChild?.clientWidth || 0;
+  if (!cssW) {
+    let gs = 104;
+    try { gs = parseInt(localStorage.getItem(LS_GRIDSIZE), 10) || 104; } catch {}
+    cssW = gs;
+  }
+  const dpr = Math.min(window.devicePixelRatio || 1, 3);
+  return clamp(Math.round(cssW * dpr), THUMB_MIN, THUMB_MAX);
+}
+
+// Tiles are square with object-fit:cover, so the SHORT side of the thumb is
+// what must reach px. Width-based decode can't know the aspect in advance,
+// so target ~1.34·px wide: portrait photos (width = short side) come out
+// sharp, and typical landscape shots land at ≈px tall.
+const thumbTargetW = px => Math.min(THUMB_MAX, Math.round(px * 1.34));
+
+function canvasToBlob(c) {
+  return new Promise(res => {
+    c.toBlob(b => {
+      if (b) { res(b); return; }
+      c.toBlob(b2 => res(b2 || null), 'image/jpeg', .72);
+    }, 'image/webp', .72);
+  });
+}
+
+async function makeImgThumb(file, px) {
+  const cached = _thumbCache.get(file);
+  if (cached && cached.px >= px) return cached.blob;
+  const tw = thumbTargetW(px);
+  let bmp = null;
+  try {
+    try {
+      // Downscale during decode — the full-res bitmap never exists.
+      bmp = await createImageBitmap(file, {
+        resizeWidth: tw, resizeQuality: 'medium', imageOrientation: 'from-image',
+      });
+    } catch {
+      // Older Safari ignores/rejects resize options — decode, scale on canvas.
+      bmp = await createImageBitmap(file);
+    }
+  } catch { return null; }   // unsupported format → caller falls back
+  try {
+    const sc = Math.min(1, tw / Math.max(bmp.width, 1));
+    const w = Math.max(1, Math.round(bmp.width  * sc));
+    const h = Math.max(1, Math.round(bmp.height * sc));
+    const c = document.createElement('canvas');
+    c.width = w; c.height = h;
+    c.getContext('2d', { alpha: false }).drawImage(bmp, 0, 0, w, h);
+    const blob = await canvasToBlob(c);
+    if (blob) _thumbCache.set(file, { px, blob });
+    return blob;
+  } catch { return null; }
+  finally { if (bmp && bmp.close) bmp.close(); }
+}
+
+// Resolve once the video actually has a PAINTABLE frame at the new time.
+// 'seeked' alone is unreliable — Safari in particular fires it before the
+// frame is decodable, which is what produced black thumbnails. Where
+// supported, requestVideoFrameCallback fires only when a real frame has
+// been presented; elsewhere we pad 'seeked' with a short settle delay.
+function awaitFrame(v) {
+  return new Promise(res => {
+    let done = false;
+    const ok = () => { if (!done) { done = true; res(); } };
+    const t = setTimeout(ok, 1500);            // hard cap — never hang the queue
+    if (v.requestVideoFrameCallback) {
+      v.requestVideoFrameCallback(() => { clearTimeout(t); ok(); });
+    } else {
+      v.addEventListener('seeked', () => {
+        setTimeout(() => { clearTimeout(t); ok(); }, 60);
+      }, { once: true });
+    }
+  });
+}
+
+// Seek, wait for a real frame, draw it, and report its average brightness
+// (0–255). The 8×8 luminance probe costs microseconds; 0 means nothing
+// usable was decoded at all, low values mean a dark-but-real frame.
+async function grabFrame(v, time, c, ctx2, pctx) {
+  const framed = awaitFrame(v);   // register BEFORE seeking
+  try { v.currentTime = time; } catch {}
+  await framed;
+  ctx2.drawImage(v, 0, 0, c.width, c.height);
+  pctx.drawImage(v, 0, 0, 8, 8);
+  const d = pctx.getImageData(0, 0, 8, 8).data;
+  let lum = 0;
+  for (let i = 0; i < d.length; i += 4) lum += d[i] + d[i + 1] + d[i + 2];
+  return lum / (64 * 3);
+}
+
+async function vidThumb(file, px) {
+  const cached = _thumbCache.get(file);
+  if (cached && cached.px >= px) return cached.blob;
+  const u = URL.createObjectURL(file);
+  const v = document.createElement('video');
+  try {
+    Object.assign(v, { preload: 'auto', muted: true, playsInline: true, src: u });
+    await new Promise((res, rej) => {
+      const t = setTimeout(rej, 4000);
+      v.addEventListener('loadedmetadata', () => { clearTimeout(t); res(); }, { once: true });
+      v.addEventListener('error', () => { clearTimeout(t); rej(); }, { once: true });
+    });
+    if (!v.videoWidth || !v.videoHeight) return null;
+    const dur = isFinite(v.duration) && v.duration > 0 ? v.duration : 4;
+
+    const sc = Math.min(1, px / Math.max(1, Math.min(v.videoWidth, v.videoHeight)));
+    const c  = document.createElement('canvas');
+    c.width  = Math.max(1, Math.round(v.videoWidth  * sc));
+    c.height = Math.max(1, Math.round(v.videoHeight * sc));
+    const ctx2 = c.getContext('2d', { alpha: false });
+    const probe = document.createElement('canvas');
+    probe.width = probe.height = 8;
+    const pctx = probe.getContext('2d', { alpha: false, willReadFrequently: true });
+
+    // Frame just past the start first (cheapest); step deeper if it's black.
+    const tries = [Math.min(dur * .1, .8), Math.min(dur * .25, 3), Math.min(dur * .5, 8)];
+    let best = 0;
+    for (let i = 0; i < tries.length; i++) {
+      const lum = await grabFrame(v, tries[i], c, ctx2, pctx);
+      if (lum > best) best = lum;
+      if (lum > 10) break;          // bright enough — done
+    }
+    // Nothing ever decoded (decoder pressure / broken file): report failure
+    // so the caller can retry. Crucially, do NOT cache a blank black frame.
+    if (best <= 0) return null;
+
+    const blob = await canvasToBlob(c);
+    if (blob) _thumbCache.set(file, { px, blob });
+    return blob;
+  } catch { return null; }
+  finally {
+    // Release the media decoder IMMEDIATELY. iOS only allows a handful of
+    // live <video> elements; leaving them to the garbage collector is what
+    // made runs of consecutive tiles fail to thumbnail.
+    try { v.pause(); v.removeAttribute('src'); v.load(); } catch {}
+    revokeURL(u);
+  }
+}
+
+/* ── Hold gesture (single-element) ────────────────────── */
+function attachHold(el, cb) {
+  let timer = null, sx = 0, sy = 0, fired = false;
+  const start = (x, y) => {
+    fired = false; sx = x; sy = y;
+    timer = setTimeout(() => { timer = null; fired = true; cb(x, y); }, HOLD_MS);
+  };
+  const move = (x, y) => {
+    if (timer && Math.hypot(x - sx, y - sy) > HOLD_DRIFT) { clearTimeout(timer); timer = null; }
+  };
+  const end = () => { clearTimeout(timer); timer = null; };
+
+  el.addEventListener('touchstart', e => {
+    if (e.touches.length !== 1) return;
+    start(e.touches[0].clientX, e.touches[0].clientY);
+  }, { passive: true });
+  el.addEventListener('touchmove', e => {
+    if (!timer || e.touches.length !== 1) { end(); return; }
+    move(e.touches[0].clientX, e.touches[0].clientY);
+  }, { passive: true });
+  el.addEventListener('touchend',    end, { passive: true });
+  el.addEventListener('touchcancel', end, { passive: true });
+  el.addEventListener('contextmenu', e => { e.preventDefault(); cb(e.clientX, e.clientY); });
+  el.addEventListener('click', e => {
+    if (fired) { fired = false; e.stopPropagation(); e.preventDefault(); }
+  }, { capture: true });
+}
+
+/* ── Gallery: delegated hold + click ──────────────────── */
+(function setupGalleryDelegation() {
+  let timer = null, sx = 0, sy = 0, holdTile = null, fired = false;
+
+  const begin = (tile, x, y) => {
+    holdTile = tile; sx = x; sy = y; fired = false;
+    timer = setTimeout(() => {
+      timer = null; fired = true;
+      handleHold(holdTile, sx, sy);
+    }, HOLD_MS);
+  };
+  const cancel = () => { if (timer) { clearTimeout(timer); timer = null; } };
+
+  gallery.addEventListener('touchstart', e => {
+    if (e.touches.length !== 1) return;
+    const tile = e.target.closest('.tile');
+    if (!tile) return;
+    const t = e.touches[0];
+    begin(tile, t.clientX, t.clientY);
+  }, { passive: true });
+
+  gallery.addEventListener('touchmove', e => {
+    if (!timer || e.touches.length !== 1) { cancel(); return; }
+    const t = e.touches[0];
+    if (Math.hypot(t.clientX - sx, t.clientY - sy) > HOLD_DRIFT) cancel();
+  }, { passive: true });
+
+  gallery.addEventListener('touchend',    cancel, { passive: true });
+  gallery.addEventListener('touchcancel', cancel, { passive: true });
+
+  gallery.addEventListener('contextmenu', e => {
+    const tile = e.target.closest('.tile');
+    if (!tile) return;
+    e.preventDefault();
+    handleHold(tile, e.clientX, e.clientY);
+  });
+
+  // Capture-phase click suppression after a hold fired
+  gallery.addEventListener('click', e => {
+    if (fired) { fired = false; e.stopPropagation(); e.preventDefault(); }
+  }, { capture: true });
+
+  // Bubble-phase click handler — open viewer or toggle select
+  gallery.addEventListener('click', e => {
+    const tile = e.target.closest('.tile');
+    if (!tile || !tile._file) return;
+    const file = tile._file;
+    if (selectMode) { toggleSelect(file, tile); return; }
+    curFile = file;
+    openViewer(getFiltered());
+  });
+
+  function handleHold(tile, x, y) {
+    const file = tile._file;
+    if (!file) return;
+    if (!selectMode) {
+      enterSelectMode(file, tile);
+    } else {
+      curFile = file; refreshFavBtn(file); showCtxAt(x, y);
+    }
+  }
+})();
+
+/* ── Context menu (file) ──────────────────────────────── */
+function showCtxAt(x, y) {
+  ctxBackdrop.classList.add('show');
+  ctx.style.transform = 'translate(-9999px,-9999px)';
+  ctx.style.display = 'block';
+  const w = ctx.offsetWidth, h = ctx.offsetHeight, pad = 10;
+  ctx.style.transform = `translate(${clamp(x - w / 2, pad, innerWidth - w - pad)}px,${clamp(y - h - 8, pad, innerHeight - h - pad)}px)`;
+  ctx.classList.add('sIn');
+}
+function hideCtx() {
+  ctx.style.display = 'none';
+  ctx.style.transform = 'translate(-9999px,-9999px)';
+  if (fldCtx.style.display !== 'block') ctxBackdrop.classList.remove('show');
+}
+document.addEventListener('click', e => {
+  if (ctx.style.display === 'block' && !ctx.contains(e.target) && e.target !== moreBtn) hideCtx();
+});
+
+moreBtn.onclick = () => {
+  refreshFavBtn(curFile);
+  const r = moreBtn.getBoundingClientRect();
+  showCtxAt(r.left + r.width / 2, r.top - 4);
+};
+ctxX.onclick = hideCtx;
+
+ctxSave.onclick = () => {
+  if (!curFile) return;
+  downloadBlob(curFile, curFile.name || (isImg(curFile) ? 'image' : 'video'));
+  hideCtx(); showToast('Saved to Files');
+};
+ctxFav.onclick    = () => { toggleFav(curFile); hideCtx(); };
+ctxFolder.onclick = () => { hideCtx(); openFolderPicker(curFile); };
+
+ctxDel.onclick = () => {
+  if (!curFile) return;
+  const file = curFile, wasOpen = viewer.classList.contains('open');
+  const snap = captureRemoval([file]);   // BEFORE mutation
+  const fl = getFiltered(), dIdx = fl.indexOf(file), lIdx = list.indexOf(file);
+  if (lIdx >= 0) list.splice(lIdx, 1);
+  favs.delete(file); saveFavs();
+  const k = favKey(file);
+  folders.forEach(({ files }) => files.delete(k));
+  saveVault();
+  invList(); invFolders(); invFilter();
+  hideCtx();
+  const undo = { label: 'Undo', cb: () => restoreRemoval(snap) };
+  if (!list.length) {
+    curFile = null; closeViewerImmediate();
+    gallery.textContent = ''; clearThumbURLs();
+    emptyEl.style.display = '';
+    renderFolderList(); updateFldDot(); setStatus();
+    showToast('Removed', 2400, undo);
+    return;
+  }
+  const nextFL = getFiltered();
+  buildGallery(nextFL); renderFolderList(); updateFldDot(); setStatus();
+  if (wasOpen) {
+    if (!nextFL.length) { closeViewer(); }
+    else {
+      curFile = nextFL[Math.min(Math.max(dIdx, 0), nextFL.length - 1)];
+      renderViewer(nextFL);
+    }
+  }
+  showToast('Removed', 2400, undo);
+};
+
+ctxExportFavs.onclick = () => {
+  hideCtx();
+  const favList = [...favs].map(f => f.name || '(unnamed)');
+  if (!favList.length) { showToast('No favourites yet — tap the heart on any file'); return; }
+  downloadBlob(new Blob([
+    `Media Mover — Favourites (${favList.length})\n${new Date().toLocaleString()}\n\n` + favList.join('\n')
+  ], { type: 'text/plain' }), 'favourites.txt');
+  showToast(`Exported ${favList.length} favourite${favList.length !== 1 ? 's' : ''}`);
+};
+
+/* ── Gallery builder ──────────────────────────────────── */
+function buildGallery(files) {
+  const seq = ++bSeq;
+
+  // Tear down previous observer + revoke previous thumbnail URLs.
+  // This was the main memory leak: blob URLs from prior renders persisted
+  // until file-picker reset, growing on every tab switch / filter change.
+  if (buildGallery._obs) { buildGallery._obs.disconnect(); buildGallery._obs = null; }
+  clearThumbURLs();
+  gallery.textContent = '';
+
+  if (!files.length) {
+    emptyEl.style.display = '';
+    if (activeTab === 'folder' && activeFolderName) {
+      emptyTit.textContent  = 'No matches';
+      emptyHint.textContent = 'None of your loaded files are in this folder yet. Add files using "Hold → Add to Folder".';
+    } else if (activeTab === 'fav') {
+      emptyTit.textContent  = 'No favourites yet';
+      emptyHint.textContent = 'Tap the heart on any file, or hold a tile and choose Favourite.';
+    } else {
+      emptyTit.textContent  = 'Nothing here';
+      emptyHint.textContent = 'Try selecting a different tab, or load more files.';
+    }
+    return;
+  }
+  emptyEl.style.display = 'none';
+  if (selectMode) gallery.classList.add('selMode');
+
+  const dm         = getDupeMap();
+  const showDupes  = togDupes.checked;
+  const folderKeys = getAllFolderKeys();
+  const frag       = document.createDocumentFragment();
+
+  for (let i = 0; i < files.length; i++) {
+    const t = buildTile(files[i], dm, showDupes, folderKeys);
+    t._idx = i;   // used to keep thumbnail loading in strict tile order
+    frag.appendChild(t);
+  }
+  gallery.appendChild(frag);
+
+  // Lazy thumbnail loading via a single IntersectionObserver. Jobs always
+  // START in tile order (1, 2, 3…) but several run at once — strict
+  // one-at-a-time was the bottleneck. The grid still fills top-to-bottom,
+  // just a few tiles at a time, and cached thumbs resolve instantly.
+  const thumbPx = calcThumbPx();   // measured AFTER tiles are in the DOM
+
+  const setThumb = (img, blob) => {
+    const u = URL.createObjectURL(blob);
+    thumbURLs.push(u);     // revoked on next rebuild
+    img.src = u;
+  };
+
+  // Live progress in the status bar so big imports don't feel frozen.
+  let qTotal = 0, qDone = 0;
+  const bumpProgress = () => {
+    qDone++;
+    if (seq !== bSeq || selectMode) return;
+    if (qDone < qTotal) msg.textContent = `Generating thumbnails ${qDone}/${qTotal}…`;
+    else setStatus();
+  };
+
+  // Ordered queue factory: binary-insert by tile index so loading order
+  // matches the screen, with up to `limit` jobs in flight at once.
+  const makeQueue = (worker, limit) => {
+    const q = [];
+    let active = 0;
+    const drain = () => {
+      while (active < limit && q.length) {
+        const job = q.shift();
+        if (job.s !== bSeq) continue;   // gallery rebuilt — skip stale job
+        active++;
+        worker(job).finally(() => { active--; drain(); });
+      }
+    };
+    return job => {
+      let lo = 0, hi = q.length;
+      while (lo < hi) { const m = (lo + hi) >> 1; q[m].idx < job.idx ? lo = m + 1 : hi = m; }
+      q.splice(lo, 0, job);
+      drain();
+    };
+  };
+
+  const pushImg = makeQueue(async job => {
+    const { img, file, s } = job;
+    const blob = await makeImgThumb(file, thumbPx);
+    if (s === bSeq) {
+      if (blob) setThumb(img, blob);
+      else {
+        // Format createImageBitmap can't read — direct decode fallback.
+        // If even that fails, the img error handler shows the broken state.
+        const u = URL.createObjectURL(file);
+        thumbURLs.push(u);
+        img.src = u;
+      }
+    }
+    bumpProgress();
+  }, IMG_THUMB_CAP);
+
+  const pushVid = makeQueue(async job => {
+    const { img, file, s } = job;
+    const blob = await vidThumb(file, thumbPx);
+    if (s !== bSeq) { bumpProgress(); return; }
+    if (blob) { setThumb(img, blob); bumpProgress(); return; }
+    if (!job.retried) {
+      // Failures here are usually transient decoder pressure — one retry,
+      // re-inserted in order, catches nearly all of them.
+      job.retried = true;
+      pushVid(job);
+      return;   // not done yet — don't advance the progress counter
+    }
+    bumpProgress();   // gave up — placeholder stays, tile still opens fine
+  }, VID_THUMB_CAP);
+
+  const obs = new IntersectionObserver(entries => {
+    for (let i = 0; i < entries.length; i++) {
+      const entry = entries[i];
+      if (!entry.isIntersecting) continue;
+      obs.unobserve(entry.target);
+      const tile = entry.target, file = tile._file;
+      if (!file) continue;
+      const img = tile.firstChild;
+      if (!img || img.src) continue;
+      const s = bSeq, idx = tile._idx || 0;
+      if (isImg(file)) {
+        if (file.size && file.size < THUMB_TINY) {
+          // Already tiny — decoding directly beats re-encoding it.
+          const u = URL.createObjectURL(file);
+          thumbURLs.push(u);
+          img.src = u;
+        } else {
+          qTotal++;
+          pushImg({ img, file, s, idx });
+        }
+      } else {
+        img.src = VID_PH;
+        img.classList.add('loaded');
+        qTotal++;
+        pushVid({ img, file, s, idx });
+      }
+    }
+  }, { rootMargin: '400px 0px', threshold: 0 });
+
+  buildGallery._obs = obs;
+  const kids = gallery.children;
+  for (let i = 0; i < kids.length; i++) obs.observe(kids[i]);
+}
+buildGallery._obs = null;
+
+function buildTile(file, dm, showDupes, folderKeys) {
+  const tile = document.createElement('div');
+  tile.className = 'tile';
+  tile._file = file;
+  if (selectMode && selected.has(file)) tile.classList.add('selected');
+
+  const img = document.createElement('img');
+  img.className = 'tImg';
+  img.alt = file.name || '';
+  img.decoding = 'async';
+  img.loading = 'lazy';
+  img.addEventListener('load',  () => img.classList.add('loaded'), { once: true });
+  img.addEventListener('error', () => {
+    img.classList.add('loaded');
+    // Show an explicit "can't preview" state rather than an empty tile.
+    if (img.src && img.src !== IMG_ERR) img.src = IMG_ERR;
+  });
+  tile.appendChild(img);  // must be firstChild — observer relies on this
+
+  const ovl = document.createElement('div');
+  ovl.className = 'ovl';
+  tile.appendChild(ovl);
+
+  const badge = document.createElement('div');
+  const vid = isVid(file);
+  badge.className = 'badge ' + (vid ? 'bVid' : 'bImg');
+  badge.textContent = vid ? 'VID' : 'IMG';
+  tile.appendChild(badge);
+
+  const chk = document.createElement('div');
+  chk.className = 'tCheck';
+  tile.appendChild(chk);
+
+  if (vid) {
+    const pl = document.createElement('div');
+    pl.className = 'plIco';
+    pl.innerHTML = '<svg viewBox="0 0 10 10"><polygon points="2,1 9,5 2,9"/></svg>';
+    tile.appendChild(pl);
+  }
+
+  if (showDupes && (dm.get(dupeKey(file)) || 0) > 1) {
+    const bd = document.createElement('div');
+    bd.className = 'bDup'; bd.textContent = 'DUP';
+    tile.appendChild(bd);
+  }
+
+  if (favs.has(file)) {
+    const star = document.createElement('div');
+    star.className = 'favSt'; star.innerHTML = svgIcon('icon-favorites');
+    tile.appendChild(star);
+  }
+
+  if (folderKeys.has(favKey(file))) {
+    const fb = document.createElement('div');
+    fb.className = 'fldSt'; fb.innerHTML = svgIcon('icon-folders');
+    tile.appendChild(fb);
+  }
+
+  return tile;
+}
+
+/* ── Viewer ───────────────────────────────────────────── */
+function openViewer(fl) {
+  renderViewer(fl || getFiltered());
+  if (!viewer.classList.contains('open')) {
+    viewer.classList.add('open');
+    viewer.style.animation = 'fIn .18s ease-out both';
+  }
+  hideCtx();
+}
+function closeViewer() {
+  if (!viewer.classList.contains('open')) return;
+  if (zS?.rafId) { cancelAnimationFrame(zS.rafId); zS.rafId = null; }
+  viewer.style.animation = 'fOut .15s ease-in both';
+  viewer.addEventListener('animationend', () => {
+    viewer.classList.remove('open');
+    viewer.style.animation = '';
+    _cleanupViewer();
+  }, { once: true });
+  hideCtx();
+  if (cinemaMode) setCinema(false);
+  if (document.fullscreenElement === viewer || document.webkitFullscreenElement === viewer) exitNativeFS();
+}
+function closeViewerImmediate() {
+  viewer.classList.remove('open');
+  viewer.style.animation = '';
+  hideCtx();
+  if (cinemaMode) setCinema(false);
+  if (document.fullscreenElement === viewer || document.webkitFullscreenElement === viewer) exitNativeFS();
+  _cleanupViewer();
+}
+function _cleanupViewer() {
+  if (zS?.rafId) cancelAnimationFrame(zS.rafId);
+  zS = null;
+  revokeURL(curURL); curURL = null;
+  vCon.textContent = '';
+}
+
+function renderViewer(fl) {
+  const viewList = fl || getFiltered();
+  if (!curFile && viewList.length) curFile = viewList[0];
+  const idx = curFile ? viewList.indexOf(curFile) : -1;
+
+  revokeURL(curURL); curURL = null;
+  if (zS?.rafId) { cancelAnimationFrame(zS.rafId); zS.rafId = null; }
+  zS = null;
+  vCon.textContent = '';
+
+  if (!curFile) { vName.textContent = '—'; vSz.textContent = '—'; return; }
+
+  vName.textContent = curFile.name || 'Untitled';
+  vSz.textContent   = fmtBytes(curFile.size);
+  vCtr.textContent  = (idx >= 0 ? idx + 1 : '?') + ' / ' + viewList.length;
+  prevBtn.disabled  = idx <= 0;
+  nextBtn.disabled  = idx >= viewList.length - 1;
+  refreshFavBtn(curFile);
+  zIn.disabled = zOut.disabled = false;
+  zTab.style.display = '';
+
+  invStage();   // new media — stale stage/image measurements are invalid
+  curURL = URL.createObjectURL(curFile);
+  if (isImg(curFile)) {
+    const img = document.createElement('img');
+    img.id = 'zImg'; img.draggable = false; img.decoding = 'async';
+    // Progressive open: the cached grid thumb appears INSTANTLY while the
+    // full-resolution original decodes in the background, then swaps in.
+    // Decoding a 48MP photo can take hundreds of ms — previously that was
+    // a blank stage; now the viewer never shows empty.
+    const cached = _thumbCache.get(curFile);
+    if (cached) {
+      const tu = URL.createObjectURL(cached.blob);
+      img.src = tu;
+      const full = new Image();
+      full.decoding = 'async';
+      full.src = curURL;
+      const ready = full.decode
+        ? full.decode()
+        : new Promise(r => { full.onload = r; full.onerror = r; });
+      ready.catch(() => {}).then(() => {
+        // Only swap if the user hasn't navigated away in the meantime.
+        if (img.isConnected && img.src === tu) img.src = curURL;
+        revokeURL(tu);
+      });
+    } else {
+      img.src = curURL;
+    }
+    vCon.appendChild(img);
+    setupZoom(img);
+  } else {
+    const v = document.createElement('video');
+    v.id = 'vVid'; v.src = curURL; v.controls = true;
+    v.playsInline = true; v.preload = 'metadata';
+    vCon.appendChild(v);
+    // No zoom for videos — hide the tab entirely so it's out of the way.
+    zTab.style.display = 'none';
+    zTab.classList.remove('open');
+  }
+}
+
+function nextItem() {
+  const fl = getFiltered(), i = curFile ? fl.indexOf(curFile) : -1;
+  if (i < fl.length - 1) { curFile = fl[i + 1]; renderViewer(fl); }
+}
+function prevItem() {
+  const fl = getFiltered(), i = curFile ? fl.indexOf(curFile) : -1;
+  if (i > 0) { curFile = fl[i - 1]; renderViewer(fl); }
+}
+closeBtn.onclick = closeViewer;
+prevBtn.onclick  = prevItem;
+nextBtn.onclick  = nextItem;
+
+/* ── Swipe ────────────────────────────────────────────── */
+// Two ways to trigger navigation: a deliberate drag past SWIPE_DIST_MIN,
+// or a fast flick — anything crossing SWIPE_FLICK_MIN within SWIPE_FLICK_MS
+// counts even if the finger barely moved. That second path is what makes
+// small, quick swipes register without needing a long drag across the
+// screen. The vertical-cancel margin is also tighter (was 10px) since the
+// stage never scrolls vertically, so there's nothing to protect against.
+const SWIPE_DIST_MIN  = 30;
+const SWIPE_FLICK_MIN = 14;
+const SWIPE_FLICK_MS  = 260;
+let swX = 0, swY = 0, swT = 0, swActive = false, swHoriz = false;
+vStage.addEventListener('touchstart', e => {
+  swActive = false; swHoriz = false;
+  if (!swipeOn || e.touches.length !== 1 || (zS && zS.scale > 1.02)) return;
+  swX = e.touches[0].clientX; swY = e.touches[0].clientY;
+  swT = Date.now();
+  swActive = true;
+}, { passive: true });
+vStage.addEventListener('touchmove', e => {
+  if (!swActive || e.touches.length !== 1) { swActive = false; return; }
+  const dx = Math.abs(e.touches[0].clientX - swX), dy = Math.abs(e.touches[0].clientY - swY);
+  if (!swHoriz) {
+    if (dy > dx + 6) { swActive = false; return; }
+    if (dx > 6) swHoriz = true;
+  }
+}, { passive: true });
+vStage.addEventListener('touchend', e => {
+  if (!swActive || !swHoriz) { swActive = false; return; }
+  swActive = false; swHoriz = false;
+  if (zS && zS.scale > 1.02) return;
+  const dx = e.changedTouches[0].clientX - swX;
+  const fast = (Date.now() - swT) < SWIPE_FLICK_MS && Math.abs(dx) > SWIPE_FLICK_MIN;
+  if (dx < 0 && (dx <= -SWIPE_DIST_MIN || fast)) nextItem();
+  else if (dx > 0 && (dx >= SWIPE_DIST_MIN || fast)) prevItem();
+}, { passive: true });
+
+/* ── Zoom ────────────────────────────────────────────────
+ * Coordinate model:
+ *   transform-origin: center center
+ *   Image is flex-centered in vStage, so its natural-center sits at the stage center.
+ *   With transform = translate(tx,ty) scale(s), an image-space offset (dx,dy) from the
+ *   image's natural center renders in the viewport at:
+ *       (stage_cx + tx + dx*s, stage_cy + ty + dy*s)
+ *
+ * Zoom-around-viewport-point (vx,vy) — keep that point stable while scale s -> s':
+ *   let px = vx - stage_cx, py = vy - stage_cy
+ *   tx' = px - (px - tx) * (s'/s)        (image-size-independent)
+ *
+ * Pan clamp:
+ *   When imgW*s > stageW: |tx| <= (imgW*s - stageW)/2
+ *   Else:                  tx is forced to 0 (image fits, keep centered)
+ * ──────────────────────────────────────────────────────── */
+
+// Stage-rect / image-dimension cache. clampT and the pinch handler run on
+// EVERY pointermove, and each getBoundingClientRect / offsetWidth call
+// forces a synchronous layout read — the main source of gesture jank on
+// large images. Measure once, invalidate only when layout actually changes.
+let _stRect = null, _imgW = 0, _imgH = 0;
+function stageRect() { return _stRect || (_stRect = vStage.getBoundingClientRect()); }
+function invStage()  { _stRect = null; _imgW = _imgH = 0; }
+window.addEventListener('resize', invStage);
+
+function showHUD(pct) {
+  const s = Math.round(pct) + '%';
+  zHUD.textContent = s; zLvl.textContent = s;
+  zHUD.classList.add('vis');
+  clearTimeout(hudTimer);
+  hudTimer = setTimeout(() => zHUD.classList.remove('vis'), 1400);
+  if (zS) {
+    zIn.disabled  = zS.scale >= Z_MAX - .01;
+    zOut.disabled = zS.scale <= Z_MIN + .01;
+  }
+}
+function applyT(img) {
+  if (!zS) return;
+  img.style.transform = `translate3d(${zS.x}px,${zS.y}px,0) scale(${zS.scale})`;
+}
+function clampT(img) {
+  const st = stageRect();
+  if (!_imgW) {
+    _imgW = img.offsetWidth  || st.width;
+    _imgH = img.offsetHeight || st.height;
+  }
+  const sw = _imgW * zS.scale, sh = _imgH * zS.scale;
+  const mx = sw > st.width  ? (sw - st.width)  / 2 : 0;
+  const my = sh > st.height ? (sh - st.height) / 2 : 0;
+  zS.x = clamp(zS.x, -mx, mx);
+  zS.y = clamp(zS.y, -my, my);
+}
+function zoomToPoint(img, ns, vx, vy) {
+  if (!zS) return;
+  ns = clamp(ns, Z_MIN, Z_MAX);
+  const st = stageRect();
+  const cx = st.left + st.width / 2, cy = st.top + st.height / 2;
+  const px = vx - cx, py = vy - cy;
+  const r = ns / zS.scale;
+  zS.x = px - (px - zS.x) * r;
+  zS.y = py - (py - zS.y) * r;
+  zS.scale = ns;
+  clampT(img); applyT(img);
+  showHUD(ns * 100);
+}
+
+// Animation only fires on explicit triggers: buttons, double-tap, fit.
+// During active pinch/pan, transforms are applied directly (no spring).
+function animateZoom(img, targetScale, vx, vy) {
+  if (!zS) return;
+  if (zS.rafId) { cancelAnimationFrame(zS.rafId); zS.rafId = null; }
+  const st = stageRect();
+  const cx = st.left + st.width / 2, cy = st.top + st.height / 2;
+  const px = (vx == null ? cx : vx) - cx;
+  const py = (vy == null ? cy : vy) - cy;
+  const ns = clamp(targetScale, Z_MIN, Z_MAX);
+  const sScale = zS.scale, sX = zS.x, sY = zS.y;
+  const r = ns / sScale;
+  let eX = px - (px - sX) * r;
+  let eY = py - (py - sY) * r;
+  // At scale 1 the image is centered (no overflow possible), so snap to 0.
+  if (ns <= 1.001) { eX = 0; eY = 0; }
+  const me = zS;
+  const t0 = performance.now(), dur = 220;
+  const step = now => {
+    if (zS !== me) return;          // viewer swapped image mid-animation
+    const u = Math.min(1, (now - t0) / dur);
+    const e = u < .5 ? 2 * u * u : 1 - Math.pow(-2 * u + 2, 2) / 2;
+    zS.scale = sScale + (ns - sScale) * e;
+    zS.x = sX + (eX - sX) * e;
+    zS.y = sY + (eY - sY) * e;
+    clampT(img); applyT(img);
+    showHUD(zS.scale * 100);
+    if (u < 1) zS.rafId = requestAnimationFrame(step);
+    else zS.rafId = null;
+  };
+  zS.rafId = requestAnimationFrame(step);
+}
+
+function zStep(d) {
+  if (!zS) return;
+  const img = vCon.querySelector('#zImg'); if (!img) return;
+  animateZoom(img, zS.scale + d);
+}
+function doFit() {
+  if (!zS) return;
+  const img = vCon.querySelector('#zImg'); if (!img) return;
+  animateZoom(img, 1);
+}
+// Zoom tab: collapsed magnifier by default; expands to − % +, auto-collapses
+// after 4s of no interaction. Tapping the percentage resets to fit.
+let zTabTimer = null;
+function pokeZTab() {
+  clearTimeout(zTabTimer);
+  zTabTimer = setTimeout(() => zTab.classList.remove('open'), 4000);
+}
+zTabBtn.addEventListener('click', () => {
+  if (zTab.classList.toggle('open')) pokeZTab();
+  else clearTimeout(zTabTimer);
+});
+zLvl.onclick = () => { doFit();      pokeZTab(); };
+zIn.onclick  = () => { zStep(.6);    pokeZTab(); };
+zOut.onclick = () => { zStep(-.6);   pokeZTab(); };
+
+// Wheel: ctrl/meta or trackpad pinch (ctrlKey) zooms toward cursor.
+// Plain wheel at fit also zooms. Plain wheel when zoomed pans.
+vStage.addEventListener('wheel', e => {
+  if (!zS) return;
+  const img = vCon.querySelector('#zImg'); if (!img) return;
+  e.preventDefault();
+  if (e.ctrlKey || e.metaKey || zS.scale <= 1.01) {
+    const factor = Math.exp(-e.deltaY * (e.deltaMode === 1 ? .07 : .0028));
+    zoomToPoint(img, zS.scale * factor, e.clientX, e.clientY);
+  } else {
+    const mul = e.deltaMode === 1 ? 20 : 1;
+    zS.x -= e.deltaX * mul;
+    zS.y -= e.deltaY * mul;
+    clampT(img); applyT(img);
+  }
+}, { passive: false });
+
+function setupZoom(img) {
+  zS = {
+    scale: 1, x: 0, y: 0,
+    p1: null, p2: null,
+    sDist: 1, sScale: 1, sMx: 0, sMy: 0, sTx: 0, sTy: 0,
+    pLX: 0, pLY: 0,
+    downX: 0, downY: 0,
+    didPan: false, didPinch: false,
+    lastTap: 0, lastTapX: 0, lastTapY: 0,
+    rafId: null,
+  };
+  applyT(img);
+  if (img.complete && img.naturalWidth) showHUD(100);
+  else img.addEventListener('load', () => showHUD(100), { once: true });
+  // Re-measure whenever a new bitmap lands (incl. the full-res progressive
+  // swap) — displayed size can settle differently after decode.
+  img.addEventListener('load', () => { _imgW = _imgH = 0; });
+
+  img.addEventListener('pointerdown', e => {
+    try { img.setPointerCapture(e.pointerId); } catch {}
+    // Kill any in-flight animation so the user's gesture takes over instantly.
+    if (zS.rafId) { cancelAnimationFrame(zS.rafId); zS.rafId = null; }
+
+    const pt = { id: e.pointerId, x: e.clientX, y: e.clientY };
+    if (!zS.p1) {
+      zS.p1 = pt;
+      zS.pLX = e.clientX; zS.pLY = e.clientY;
+      zS.downX = e.clientX; zS.downY = e.clientY;
+      zS.didPan = false;
+    } else if (!zS.p2 && zS.p1.id !== e.pointerId) {
+      zS.p2 = pt;
+      zS.sDist  = Math.hypot(zS.p1.x - zS.p2.x, zS.p1.y - zS.p2.y) || 1;
+      zS.sScale = zS.scale;
+      zS.sMx    = (zS.p1.x + zS.p2.x) / 2;
+      zS.sMy    = (zS.p1.y + zS.p2.y) / 2;
+      zS.sTx    = zS.x; zS.sTy = zS.y;
+      zS.didPinch = true;
+    }
+  });
+
+  img.addEventListener('pointermove', e => {
+    if (!zS.p1) return;
+    if (zS.p1.id === e.pointerId)              { zS.p1.x = e.clientX; zS.p1.y = e.clientY; }
+    if (zS.p2 && zS.p2.id === e.pointerId)     { zS.p2.x = e.clientX; zS.p2.y = e.clientY; }
+
+    if (zS.p2) {
+      // Pinch zoom — anchor on start-midpoint + drift midpoint for natural two-finger pan.
+      const dist = Math.hypot(zS.p1.x - zS.p2.x, zS.p1.y - zS.p2.y);
+      const mx = (zS.p1.x + zS.p2.x) / 2, my = (zS.p1.y + zS.p2.y) / 2;
+      const ns = clamp(zS.sScale * (dist / zS.sDist), Z_MIN, Z_MAX);
+      const st = stageRect();
+      const cx = st.left + st.width / 2, cy = st.top + st.height / 2;
+      const pxS = zS.sMx - cx, pyS = zS.sMy - cy;
+      const r = ns / zS.sScale;
+      zS.x = (mx - cx) - (pxS - zS.sTx) * r;
+      zS.y = (my - cy) - (pyS - zS.sTy) * r;
+      zS.scale = ns;
+      clampT(img); applyT(img);
+      showHUD(ns * 100);
+    } else {
+      // Single-finger pan — only when zoomed in.
+      if (zS.scale <= 1.01) {
+        zS.pLX = e.clientX; zS.pLY = e.clientY;
+        return;
+      }
+      const dx = e.clientX - zS.pLX, dy = e.clientY - zS.pLY;
+      zS.pLX = e.clientX; zS.pLY = e.clientY;
+      if (!zS.didPan && Math.hypot(e.clientX - zS.downX, e.clientY - zS.downY) > 4) {
+        zS.didPan = true;
+        img.classList.add('pan');
+      }
+      zS.x += dx; zS.y += dy;
+      clampT(img); applyT(img);
+    }
+  });
+
+  const onUp = e => {
+    const wasP1 = zS.p1 && zS.p1.id === e.pointerId;
+    const wasP2 = zS.p2 && zS.p2.id === e.pointerId;
+
+    if (wasP2) {
+      // Second finger up — continue with the remaining one.
+      // Keep didPinch true so a stray tap on lift doesn't double-tap.
+      zS.p2 = null;
+      if (zS.p1) { zS.pLX = zS.p1.x; zS.pLY = zS.p1.y; }
+    } else if (wasP1) {
+      // Tap / double-tap detection — only fires when this gesture was just a tap.
+      const moved = Math.hypot(e.clientX - zS.downX, e.clientY - zS.downY) > 6;
+      if (!zS.didPan && !zS.didPinch && !moved && !zS.p2) {
+        const now = Date.now();
+        const closeEnough = Math.hypot(e.clientX - zS.lastTapX, e.clientY - zS.lastTapY) < 32;
+        if (now - zS.lastTap < 320 && closeEnough) {
+          if (zS.scale < 1.5) animateZoom(img, 2.8, e.clientX, e.clientY);
+          else                animateZoom(img, 1);
+          zS.lastTap = 0;
+        } else {
+          zS.lastTap = now;
+          zS.lastTapX = e.clientX;
+          zS.lastTapY = e.clientY;
+        }
+      }
+      // Promote p2 -> p1 if user lifted first finger while second is still down.
+      zS.p1 = zS.p2 ? { id: zS.p2.id, x: zS.p2.x, y: zS.p2.y } : null;
+      zS.p2 = null;
+      if (zS.p1) { zS.pLX = zS.p1.x; zS.pLY = zS.p1.y; }
+    }
+
+    if (!zS.p1 && !zS.p2) {
+      img.classList.remove('pan');
+      zS.didPan = false;
+      zS.didPinch = false;
+    }
+  };
+  img.addEventListener('pointerup', onUp);
+  img.addEventListener('pointercancel', e => {
+    if (zS.p1 && zS.p1.id === e.pointerId) zS.p1 = null;
+    if (zS.p2 && zS.p2.id === e.pointerId) zS.p2 = null;
+    if (!zS.p1 && !zS.p2) {
+      img.classList.remove('pan');
+      zS.didPan = false;
+      zS.didPinch = false;
+    }
+  });
+}
+
+/* ── Fullscreen & Cinema ──────────────────────────────── */
+const isNativeFS   = () => !!(document.fullscreenElement || document.webkitFullscreenElement);
+const exitNativeFS = () => { try { (document.exitFullscreen || document.webkitExitFullscreen)?.call(document); } catch {} };
+function enterNativeFS(el, fallback) {
+  const req = el.requestFullscreen || el.webkitRequestFullscreen;
+  if (!req) { fallback?.(); return; }
+  try { const p = req.call(el); if (p?.catch) p.catch(() => fallback?.()); }
+  catch { fallback?.(); }
+}
+function setCinema(on) {
+  cinemaMode = on;
+  invStage();   // top/bottom bars toggle — stage size changes
+  viewer.classList.toggle('cinema', on);
+  vFsBtn.innerHTML = svgIcon(on ? 'icon-collapse' : 'icon-expand');
+  vFsBtn.classList.toggle('on', on);
+}
+fsBtn.addEventListener('click', () => {
+  if (isNativeFS()) { exitNativeFS(); return; }
+  enterNativeFS(document.documentElement, () => showToast('Fullscreen not available'));
+});
+vFsBtn.addEventListener('click', () => {
+  if (isNativeFS()) { exitNativeFS(); return; }
+  if (cinemaMode)   { setCinema(false); return; }
+  enterNativeFS(viewer, () => setCinema(true));
+});
+cinemaExit.addEventListener('click', () => {
+  if (isNativeFS()) exitNativeFS();
+  else setCinema(false);
+});
+function onFSChange() {
+  invStage();   // fullscreen transitions resize the stage
+  const on  = isNativeFS();
+  const vFS = on && (document.fullscreenElement === viewer || document.webkitFullscreenElement === viewer);
+  fsBtn.innerHTML  = svgIcon((on && !vFS) ? 'icon-collapse' : 'icon-expand');
+  fsBtn.classList.toggle('on', on && !vFS);
+  vFsBtn.innerHTML = svgIcon((vFS || cinemaMode) ? 'icon-collapse' : 'icon-expand');
+  vFsBtn.classList.toggle('on', vFS || cinemaMode);
+  if (!on && cinemaMode) setCinema(false);
+}
+document.addEventListener('fullscreenchange',       onFSChange);
+document.addEventListener('webkitfullscreenchange', onFSChange);
+
+/* ── Settings panel ───────────────────────────────────── */
+function toggleSP(on) {
+  sPanel.style.display = on ? 'block' : 'none';
+  if (on) sPanel.classList.add('sIn');
+}
+settingsBtn.addEventListener('click', e => { e.stopPropagation(); toggleSP(sPanel.style.display !== 'block'); });
+settingsBtn.addEventListener('keydown', e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); settingsBtn.click(); } });
+document.addEventListener('click', e => {
+  if (!sPanel.contains(e.target) && e.target !== settingsBtn) toggleSP(false);
+});
+document.addEventListener('scroll', () => toggleSP(false), { passive: true });
+
+togSwipe.addEventListener('change', () => { swipeOn = togSwipe.checked; });
+togSort.addEventListener('change', async () => {
+  newestF = togSort.checked;
+  if (list.length) { await sortFiles(); buildGallery(getFiltered()); setStatus(); }
+});
+togExif.addEventListener('change', async () => {
+  prefExif = togExif.checked;
+  if (list.length) { msg.textContent = 'Reading EXIF dates…'; await sortFiles(); buildGallery(getFiltered()); setStatus(); }
+});
+togDupes.addEventListener('change', () => { if (list.length) buildGallery(getFiltered()); });
+
+sGBtnEls.forEach(btn => {
+  btn.addEventListener('click', () => {
+    sGBtnEls.forEach(b => b.classList.remove('on'));
+    btn.classList.add('on');
+    const sz = btn.dataset.gs;
+    gallery.style.gridTemplateColumns = `repeat(auto-fill,minmax(${sz}px,1fr))`;
+    try { localStorage.setItem(LS_GRIDSIZE, sz); } catch {}
+  });
+});
+
+/* ── Keyboard shortcuts ──────────────────────────────── */
+document.addEventListener('keydown', e => {
+  const inV = viewer.classList.contains('open');
+  if (e.key === 'Escape') {
+    if (sPanel.style.display === 'block')        { toggleSP(false); return; }
+    if (fldPicker.classList.contains('open'))    { closeFolderPicker(); return; }
+    if (ctx.style.display === 'block')           { hideCtx(); return; }
+    if (fldCtx.style.display === 'block')        { hideFldCtx(); return; }
+    if (selectMode)                              { exitSelectMode(); return; }
+    if (cinemaMode)                              { setCinema(false); return; }
+    if (inV)                                     { closeViewer(); return; }
+    return;
+  }
+  if ((e.key === 'f' || e.key === 'F') && !e.ctrlKey && !e.metaKey && !e.shiftKey) {
+    if (inV) {
+      if (isNativeFS())   exitNativeFS();
+      else if (cinemaMode) setCinema(false);
+      else                enterNativeFS(viewer, () => setCinema(true));
+    } else {
+      if (isNativeFS()) exitNativeFS();
+      else              enterNativeFS(document.documentElement, () => {});
+    }
+    return;
+  }
+  if (!inV) return;
+  const atFit = !zS || zS.scale <= 1.02;
+  if (e.key === 'ArrowRight' && atFit) { e.preventDefault(); nextItem(); }
+  if (e.key === 'ArrowLeft'  && atFit) { e.preventDefault(); prevItem(); }
+  if (e.key === '+' || e.key === '=')  { e.preventDefault(); zStep(.6); }
+  if (e.key === '-')                   { e.preventDefault(); zStep(-.6); }
+  if (e.key === '0')                   { e.preventDefault(); doFit(); }
+});
+
+/* ── Init ────────────────────────────────────────────── */
+(() => {
+  loadVault();
+  renderFolderList();
+  updateFldDot();
+  try {
+    const sz = localStorage.getItem(LS_GRIDSIZE);
+    if (sz) {
+      gallery.style.gridTemplateColumns = `repeat(auto-fill,minmax(${sz}px,1fr))`;
+      sGBtnEls.forEach(b => b.classList.toggle('on', b.dataset.gs === sz));
+    }
+  } catch {}
+  invList();   // sets _totalSize = 0
+  setStatus();
+})();
+
+/* ── Cleanup ─────────────────────────────────────────── */
+window.addEventListener('pagehide',     () => { clearThumbURLs(); revokeURL(curURL); clearFolderThumbURLs(); });
+window.addEventListener('beforeunload', () => { clearThumbURLs(); revokeURL(curURL); clearFolderThumbURLs(); });
+
+</script>
+</body>
+</html>
